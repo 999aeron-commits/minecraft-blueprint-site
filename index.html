@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft Image to Blueprint</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Minecraft Blueprint Generator</h1>
+            <p>Upload an image to convert it into pixel art that can be mapped to Minecraft blocks.</p>
+        </header>
+        <main>
+            <div class="project-panel">
+                <h2>Project</h2>
+                <div class="project-controls">
+                    <div class="project-field">
+                        <label for="projectNameInput">Project Name</label>
+                        <input type="text" id="projectNameInput" placeholder="Enter a project name">
+                    </div>
+                    <button id="saveProjectBtn" type="button">Save Project</button>
+                    <div class="project-field">
+                        <label for="loadProjectSelect">Saved Projects</label>
+                        <select id="loadProjectSelect">
+                            <option value="">Select a project</option>
+                        </select>
+                    </div>
+                    <button id="loadProjectBtn" type="button">Load Project</button>
+                    <button id="deleteProjectBtn" type="button">Delete Project</button>
+                </div>
+                <div id="projectMessage" class="project-message">No saved projects yet.</div>
+                <div id="savedProjectsList" class="saved-projects-list"></div>
+            </div>
+            <section id="welcomeState" class="welcome-state">
+                <div class="welcome-card">
+                    <p class="welcome-eyebrow">Minecraft Blueprint Generator</p>
+                    <h2>Turn any image into a Minecraft block-by-block blueprint.</h2>
+                    <p class="welcome-copy">Upload a source image, tune the conversion, and follow a guided build workspace designed to make large pixel-art projects easier to plan and complete.</p>
+                    <div class="welcome-steps">
+                        <div class="welcome-step">
+                            <span class="welcome-step-number">1</span>
+                            <div>
+                                <h3>Upload an image</h3>
+                                <p>Start with any picture, portrait, or design you want to recreate in Minecraft.</p>
+                            </div>
+                        </div>
+                        <div class="welcome-step">
+                            <span class="welcome-step-number">2</span>
+                            <div>
+                                <h3>Choose blueprint size</h3>
+                                <p>Pick the scale and conversion settings that fit your build style and materials.</p>
+                            </div>
+                        </div>
+                        <div class="welcome-step">
+                            <span class="welcome-step-number">3</span>
+                            <div>
+                                <h3>Build it in Minecraft</h3>
+                                <p>Use the generated guide, sections, materials, and build mode to place blocks with confidence.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="template-section">
+                        <div class="template-section-header">
+                            <h3>Try a Template</h3>
+                            <p>Instantly explore the generator with built-in examples before uploading your own image.</p>
+                        </div>
+                        <div class="template-grid">
+                            <button class="template-card" type="button" data-template-name="Creeper Face" data-template-src="assets/templates/creeper-face.svg">
+                                <img src="assets/templates/creeper-face.svg" alt="Creeper face template preview">
+                                <span>Creeper face</span>
+                            </button>
+                            <button class="template-card" type="button" data-template-name="Mario Pixel Art" data-template-src="assets/templates/mario-pixel-art.svg">
+                                <img src="assets/templates/mario-pixel-art.svg" alt="Mario pixel art template preview">
+                                <span>Mario pixel art</span>
+                            </button>
+                            <button class="template-card" type="button" data-template-name="Heart Pixel Art" data-template-src="assets/templates/heart-pixel-art.svg">
+                                <img src="assets/templates/heart-pixel-art.svg" alt="Heart pixel art template preview">
+                                <span>Heart pixel art</span>
+                            </button>
+                            <button class="template-card" type="button" data-template-name="Minecraft Sword" data-template-src="assets/templates/minecraft-sword.svg">
+                                <img src="assets/templates/minecraft-sword.svg" alt="Minecraft sword template preview">
+                                <span>Minecraft sword</span>
+                            </button>
+                            <button class="template-card" type="button" data-template-name="Example Portrait" data-template-src="assets/templates/example-portrait.svg">
+                                <img src="assets/templates/example-portrait.svg" alt="Example portrait template preview">
+                                <span>Example portrait</span>
+                            </button>
+                        </div>
+                    </div>
+                    <label for="imageUpload" class="welcome-upload-button">Choose an Image to Begin</label>
+                </div>
+            </section>
+            <div id="appWorkspace" class="app-workspace hidden-before-upload">
+            <div class="control-panel">
+                <div class="setup-grid">
+                    <section class="setup-card setup-card-upload">
+                        <div class="setup-card-header">
+                            <h3>Project Setup</h3>
+                            <p>Choose the source image and base blueprint size before converting.</p>
+                        </div>
+                        <div class="setup-fields">
+                            <div class="field-group">
+                                <label for="imageUpload">Source Image</label>
+                                <input type="file" id="imageUpload" accept="image/*">
+                            </div>
+                            <div class="field-group">
+                                <label for="sizeSelector">Blueprint Size</label>
+                                <select id="sizeSelector">
+                                    <option value="32">32 x 32</option>
+                                    <option value="64">64 x 64</option>
+                                    <option value="128">128 x 128</option>
+                                </select>
+                            </div>
+                        </div>
+                    </section>
+                    <section class="setup-card">
+                        <div class="setup-card-header">
+                            <h3>Blueprint Settings</h3>
+                            <p>Control how the viewer and sectioned build plan are presented.</p>
+                        </div>
+                        <div class="setup-fields">
+                            <div class="field-group">
+                                <label for="viewSelector">View</label>
+                                <select id="viewSelector">
+                                    <option value="color">Color View</option>
+                                    <option value="label">Label View</option>
+                                </select>
+                            </div>
+                            <div class="field-group">
+                                <label for="paletteSelector">Palette</label>
+                                <select id="paletteSelector">
+                                    <option value="all">All Blocks</option>
+                                    <option value="concrete">Concrete Only</option>
+                                    <option value="wool">Wool Only</option>
+                                    <option value="terracotta">Terracotta Only</option>
+                                    <option value="survival">Survival Friendly</option>
+                                </select>
+                            </div>
+                        </div>
+                    </section>
+                    <section class="setup-card">
+                        <div class="setup-card-header">
+                            <h3>Conversion Options</h3>
+                            <p>Choose the output style that best fits accuracy, readability, or survival play.</p>
+                        </div>
+                        <div class="setup-fields">
+                            <div class="field-group">
+                                <label for="conversionModeSelector">Conversion Mode</label>
+                                <select id="conversionModeSelector">
+                                    <option value="best-match">Best Match</option>
+                                    <option value="clean-build">Clean Build</option>
+                                    <option value="survival-friendly">Survival Friendly</option>
+                                    <option value="high-contrast">High Contrast</option>
+                                    <option value="portrait-mode">Portrait Mode</option>
+                                </select>
+                            </div>
+                        </div>
+                    </section>
+                    <div class="image-adjustments-panel">
+                        <div class="setup-card-header">
+                            <h3>Image Adjustments</h3>
+                            <p>Fine-tune the source image before block matching begins.</p>
+                        </div>
+                        <div class="adjustment-control">
+                            <label for="brightnessSlider">Brightness: <span id="brightnessValue">100%</span></label>
+                            <input type="range" id="brightnessSlider" min="50" max="150" value="100">
+                        </div>
+                        <div class="adjustment-control">
+                            <label for="contrastSlider">Contrast: <span id="contrastValue">100%</span></label>
+                            <input type="range" id="contrastSlider" min="50" max="150" value="100">
+                        </div>
+                        <div class="adjustment-control">
+                            <label for="saturationSlider">Saturation: <span id="saturationValue">100%</span></label>
+                            <input type="range" id="saturationSlider" min="0" max="200" value="100">
+                        </div>
+                        <button id="resetAdjustmentsBtn" type="button">Reset Adjustments</button>
+                    </div>
+                    <div class="image-adjustments-panel simplification-panel">
+                        <div class="setup-card-header">
+                            <h3>Image Simplification</h3>
+                            <p>Reduce noise and preserve major forms for cleaner, easier builds.</p>
+                        </div>
+                        <div class="adjustment-control">
+                            <label for="detailLevelSlider">Detail Level: <span id="detailLevelValue">Medium</span></label>
+                            <input type="range" id="detailLevelSlider" min="0" max="100" value="50">
+                        </div>
+                        <div class="adjustment-control">
+                            <label for="noiseReductionSlider">Noise Reduction: <span id="noiseReductionValue">Low</span></label>
+                            <input type="range" id="noiseReductionSlider" min="0" max="100" value="25">
+                        </div>
+                        <div class="adjustment-control">
+                            <label for="edgeStrengthSlider">Edge Strength: <span id="edgeStrengthValue">Medium</span></label>
+                            <input type="range" id="edgeStrengthSlider" min="0" max="100" value="50">
+                        </div>
+                        <button id="resetSimplificationBtn" type="button">Reset Simplification</button>
+                    </div>
+                </div>
+            </div>
+            <section class="workspace-shell">
+                <div class="workspace-heading">
+                    <div>
+                        <h2>Blueprint Viewer</h2>
+                        <p>The main workspace for inspecting, comparing, and building your converted blueprint.</p>
+                    </div>
+                </div>
+                <div class="viewer-controls">
+                    <div class="field-group compact-field">
+                        <label for="sectionSizeSelector">Section Size</label>
+                        <select id="sectionSizeSelector">
+                            <option value="8">8 x 8</option>
+                            <option value="16" selected>16 x 16</option>
+                            <option value="32">32 x 32</option>
+                        </select>
+                    </div>
+                    <div class="button-group">
+                        <button id="zoomIn">+</button>
+                        <button id="zoomOut">-</button>
+                        <button id="resetZoom">Reset</button>
+                    </div>
+                    <span id="zoomLevel">Zoom: 100%</span>
+                </div>
+                <div class="view-mode-toggle" id="viewModeToggle">
+                    <button id="fullViewBtn" class="mode-btn active" type="button">Full Blueprint View</button>
+                    <button id="focusedViewBtn" class="mode-btn" type="button">Focused Section View</button>
+                    <button id="buildModeBtn" class="mode-btn" type="button">Build Mode</button>
+                    <button id="comparisonModeBtn" class="mode-btn" type="button">Comparison Mode</button>
+                </div>
+                <div class="workspace">
+                <section class="viewer-column">
+                    <div class="viewer-card build-mode-card" id="buildModeCard">
+                        <div class="viewer-header">
+                            <div>
+                                <h3>Build Mode</h3>
+                                <p>Follow the current row in the selected section and place blocks step by step.</p>
+                            </div>
+                            <div class="viewer-badge" id="buildModeStatusBadge">Build Mode: Off</div>
+                        </div>
+                        <div class="build-mode-meta">
+                            <div class="build-mode-detail" id="buildModeSectionInfo">Current Section: None</div>
+                            <div class="build-mode-detail" id="buildModeRowInfo">Row: --</div>
+                        </div>
+                        <div class="build-mode-controls">
+                            <button id="prevRowBtn" type="button">Previous Row</button>
+                            <button id="nextRowBtn" type="button">Next Row</button>
+                            <button id="completeSectionBtn" type="button">Mark Section Completed</button>
+                        </div>
+                        <div id="buildRowSequence" class="build-row-sequence">
+                            Enable Build Mode and select a section to see the current row.
+                        </div>
+                    </div>
+                    <div class="comparison-row">
+                        <div class="viewer-card preview-card" id="comparisonPreviewCard">
+                            <div class="viewer-header">
+                                <div>
+                                    <h3>Adjusted Source Preview</h3>
+                                    <p>Compare the processed source image against the generated blueprint.</p>
+                                </div>
+                                <label class="sync-toggle">
+                                    <input type="checkbox" id="syncComparisonCheckbox">
+                                    <span>Sync View</span>
+                                </label>
+                            </div>
+                            <div id="comparisonPreviewViewer" class="viewer-container preview-viewer-container">
+                                <canvas id="pixelCanvas" width="320" height="320"></canvas>
+                            </div>
+                        </div>
+                        <div class="viewer-card full-view-card" id="fullBlueprintCard">
+                            <div class="viewer-header">
+                                <div>
+                                    <h3>Full Blueprint</h3>
+                                    <p>See the entire build with clear section boundaries.</p>
+                                </div>
+                                <div class="viewer-badge" id="currentSectionBadge">Selected Section: None</div>
+                            </div>
+                            <div id="blueprintViewer" class="viewer-container">
+                                <div id="blueprintGrid"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="viewer-card focused-view-card" id="focusedSectionCard">
+                        <div class="viewer-header focused-header">
+                            <div>
+                                <h3>Focused Section View</h3>
+                                <p>Build one section at a time with a larger viewer and matching status details.</p>
+                            </div>
+                            <div class="focus-meta">
+                                <div class="focus-label" id="focusedSectionLabel">No section selected</div>
+                                <div class="focus-size" id="focusedSectionSize">Section size: --</div>
+                                <div class="focus-status" id="focusedSectionStatus">Status: --</div>
+                            </div>
+                        </div>
+                        <div class="focus-nav">
+                            <button id="prevSectionBtn" type="button">Previous Section</button>
+                            <button id="nextSectionBtn" type="button">Next Section</button>
+                        </div>
+                        <div id="focusedSectionViewer" class="viewer-container focused-viewer-container">
+                            <div id="focusedSectionGrid"></div>
+                        </div>
+                    </div>
+                </section>
+                <aside class="sidebar">
+                    <div id="selectedBlockPanel" class="selected-block-panel">
+                        <h3>Selected Block</h3>
+                        <div id="selectedBlockInfo"></div>
+                    </div>
+                    <div id="sectionMapPanel" class="section-map-panel">
+                        <h3>Section Map</h3>
+                        <div id="sectionMapInfo">Upload an image to generate the section map.</div>
+                    </div>
+                    <div id="sectionMaterialsPanel" class="section-materials-panel">
+                        <h3>Section Materials</h3>
+                        <div id="sectionMaterialsInfo">Select a section to see its materials list.</div>
+                    </div>
+                    <div id="sectionsPanel" class="sections-panel">
+                        <!-- Sections will be generated here -->
+                    </div>
+                </aside>
+                </div>
+            </section>
+            <div id="tooltip" class="tooltip"></div>
+            <div id="status"></div>
+            </div>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
