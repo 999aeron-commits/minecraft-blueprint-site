@@ -53,6 +53,42 @@ const upgradeModalCloseBtn = document.getElementById('upgradeModalCloseBtn');
 const unlockCurrentBlueprintBtn = document.getElementById('unlockCurrentBlueprintBtn');
 const unlockLifetimeBtn = document.getElementById('unlockLifetimeBtn');
 const upgradeModalStatus = document.getElementById('upgradeModalStatus');
+const accountSummaryText = document.getElementById('accountSummaryText');
+const accountSignedOutActions = document.getElementById('accountSignedOutActions');
+const accountSignedInActions = document.getElementById('accountSignedInActions');
+const openCreateAccountBtn = document.getElementById('openCreateAccountBtn');
+const openLoginBtn = document.getElementById('openLoginBtn');
+const openAccountBtn = document.getElementById('openAccountBtn');
+const logoutBtn = document.getElementById('logoutBtn');
+const authModal = document.getElementById('authModal');
+const authModalCloseBtn = document.getElementById('authModalCloseBtn');
+const authModalTitle = document.getElementById('authModalTitle');
+const authModalCopy = document.getElementById('authModalCopy');
+const authViewTriggerButtons = Array.from(document.querySelectorAll('[data-auth-view-trigger]'));
+const authTabButtons = Array.from(document.querySelectorAll('.auth-modal-tab[data-auth-view-trigger]'));
+const authPanels = Array.from(document.querySelectorAll('.auth-panel[data-auth-view]'));
+const authFooterForgotBtn = document.getElementById('authFooterForgotBtn');
+const authFooterBackBtn = document.getElementById('authFooterBackBtn');
+const authAccountSummary = document.getElementById('authAccountSummary');
+const authAccountEmailValue = document.getElementById('authAccountEmailValue');
+const authAccountStatusValue = document.getElementById('authAccountStatusValue');
+const openResetPasswordFromAccountBtn = document.getElementById('openResetPasswordFromAccountBtn');
+const registerForm = document.getElementById('registerForm');
+const registerEmail = document.getElementById('registerEmail');
+const registerPassword = document.getElementById('registerPassword');
+const registerConfirmPassword = document.getElementById('registerConfirmPassword');
+const loginForm = document.getElementById('loginForm');
+const loginEmail = document.getElementById('loginEmail');
+const loginPassword = document.getElementById('loginPassword');
+const forgotPasswordForm = document.getElementById('forgotPasswordForm');
+const forgotPasswordEmail = document.getElementById('forgotPasswordEmail');
+const forgotResetPreview = document.getElementById('forgotResetPreview');
+const forgotResetPreviewLink = document.getElementById('forgotResetPreviewLink');
+const resetPasswordForm = document.getElementById('resetPasswordForm');
+const resetPasswordToken = document.getElementById('resetPasswordToken');
+const resetPasswordInput = document.getElementById('resetPasswordInput');
+const authFieldErrorElements = Array.from(document.querySelectorAll('[data-auth-field-error]'));
+const authFormMessageElements = Array.from(document.querySelectorAll('[data-auth-form-message]'));
 
 // Debug toggle: temporarily simplify lower-workspace interaction/paint behavior to isolate
 // which hovered lower-area effects are causing scroll to feel choppy.
@@ -68,6 +104,7 @@ const DEFAULT_LOCAL_APP_ORIGIN = 'http://127.0.0.1:8000';
 const DEFAULT_LOCAL_CHAT_API_URL = `${DEFAULT_LOCAL_APP_ORIGIN}/api/chat`;
 const DEFAULT_LOCAL_CHECKOUT_API_URL = `${DEFAULT_LOCAL_APP_ORIGIN}/api/create-checkout-session`;
 const DEFAULT_LOCAL_CHECKOUT_STATUS_API_URL = `${DEFAULT_LOCAL_APP_ORIGIN}/api/checkout-session-status`;
+const DEFAULT_LOCAL_AUTH_API_BASE_URL = `${DEFAULT_LOCAL_APP_ORIGIN}/api/auth`;
 const DEFAULT_PROJECT_NAME = 'Untitled Project';
 const BLUEPRINT_SIZE_LABELS = ['Small', 'Medium', 'Large', 'X-Large', 'Mega'];
 const SQUARE_BLUEPRINT_LONG_SIDE_OPTIONS = [16, 32, 64, 128, 256];
@@ -76,6 +113,13 @@ const EDGE_ENHANCEMENT_THRESHOLD = 12;
 const SUBSCRIPTION_ACTIVE_STORAGE_KEY = 'photosynthesizer_subscription_active';
 const LIFETIME_UNLOCK_STORAGE_KEY = 'photosynthesizer_lifetime_unlock';
 const PREMIUM_SIZE_LONG_SIDE_THRESHOLD = 128;
+const AUTH_EMAIL_ERROR_MESSAGE = 'Invalid email.';
+const AUTH_PASSWORD_REQUIRED_MESSAGE = 'Enter your password.';
+const AUTH_PASSWORD_TOO_SHORT_MESSAGE = 'Password too short.';
+const AUTH_PASSWORD_NUMBER_MESSAGE = 'Password must include a number.';
+const AUTH_PASSWORD_MISMATCH_MESSAGE = 'Passwords do not match.';
+const AUTH_RESET_INVALID_MESSAGE = 'Reset link is invalid or expired.';
+const APP_API_ORIGIN_PLACEHOLDER = '__APP_API_ORIGIN__';
 
 ctx.imageSmoothingEnabled = false;
 
@@ -123,6 +167,11 @@ const chatState = {
     isOpen: false,
     isLoading: false,
     messages: []
+};
+const accountState = {
+    isAuthenticated: false,
+    user: null,
+    activeView: 'login'
 };
 const fullBlueprintPanState = {
     active: false,
@@ -216,11 +265,15 @@ function scrollChatToLatest() {
 }
 
 function getChatApiUrl() {
-    if (window.location.protocol === 'file:') {
-        return DEFAULT_LOCAL_CHAT_API_URL;
-    }
+    return buildApiUrl('/api/chat');
+}
 
-    return '/api/chat';
+function getAuthApiUrl(path) {
+    const normalizedPath = typeof path === 'string' && path.startsWith('/')
+        ? path
+        : `/api/auth/${String(path || '').replace(/^\/+/, '')}`;
+
+    return buildApiUrl(normalizedPath);
 }
 
 function isLocalhostWorkspaceSession() {
@@ -228,20 +281,40 @@ function isLocalhostWorkspaceSession() {
 }
 
 function getCheckoutApiUrl() {
-    if (window.location.protocol === 'file:') {
-        return DEFAULT_LOCAL_CHECKOUT_API_URL;
-    }
-
-    return '/api/create-checkout-session';
+    return buildApiUrl('/api/create-checkout-session');
 }
 
 function getCheckoutStatusApiUrl(sessionId) {
     const encodedSessionId = encodeURIComponent(sessionId);
-    if (window.location.protocol === 'file:') {
-        return `${DEFAULT_LOCAL_CHECKOUT_STATUS_API_URL}?session_id=${encodedSessionId}`;
+    return buildApiUrl(`/api/checkout-session-status?session_id=${encodedSessionId}`);
+}
+
+function getConfiguredApiOrigin() {
+    const apiOriginMeta = document.querySelector('meta[name="app-api-origin"]');
+    const rawContent = apiOriginMeta?.getAttribute('content') || '';
+    const normalizedContent = rawContent.trim();
+    if (!normalizedContent || normalizedContent === APP_API_ORIGIN_PLACEHOLDER) {
+        return '';
     }
 
-    return `/api/checkout-session-status?session_id=${encodedSessionId}`;
+    return normalizedContent.replace(/\/+$/, '');
+}
+
+function buildApiUrl(path) {
+    const normalizedPath = String(path || '').startsWith('/')
+        ? String(path || '')
+        : `/${String(path || '').replace(/^\/+/, '')}`;
+
+    if (window.location.protocol === 'file:') {
+        return `${DEFAULT_LOCAL_APP_ORIGIN}${normalizedPath}`;
+    }
+
+    const configuredApiOrigin = getConfiguredApiOrigin();
+    if (configuredApiOrigin) {
+        return `${configuredApiOrigin}${normalizedPath}`;
+    }
+
+    return normalizedPath;
 }
 
 function hasActivePremiumSubscription() {
@@ -253,7 +326,7 @@ function hasLifetimePremiumUnlock() {
 }
 
 function hasPremiumSizeAccessForCurrentBlueprint() {
-    return hasActivePremiumSubscription() || hasLifetimePremiumUnlock();
+    return !!accountState.user?.has_premium_access || hasActivePremiumSubscription() || hasLifetimePremiumUnlock();
 }
 
 function isPremiumBlueprintSizeOption(option) {
@@ -374,6 +447,727 @@ async function parseJsonResponse(response) {
     }
 }
 
+function delay(ms) {
+    return new Promise((resolve) => {
+        window.setTimeout(resolve, ms);
+    });
+}
+
+function validateEmailInputValue(email) {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(normalizedEmail)) {
+        throw new Error(AUTH_EMAIL_ERROR_MESSAGE);
+    }
+
+    return normalizedEmail;
+}
+
+function validatePasswordInputValue(password) {
+    const normalizedPassword = String(password || '').trim();
+    if (normalizedPassword.length < 5) {
+        throw new Error(AUTH_PASSWORD_TOO_SHORT_MESSAGE);
+    }
+    if (!/\d/.test(normalizedPassword)) {
+        throw new Error(AUTH_PASSWORD_NUMBER_MESSAGE);
+    }
+
+    return normalizedPassword;
+}
+
+function validateMatchingPasswords(password, confirmPassword) {
+    const normalizedPassword = String(password || '').trim();
+    const normalizedConfirmPassword = String(confirmPassword || '').trim();
+    if (normalizedPassword !== normalizedConfirmPassword) {
+        throw new Error(AUTH_PASSWORD_MISMATCH_MESSAGE);
+    }
+
+    return normalizedConfirmPassword;
+}
+
+function getAuthViewConfig(view) {
+    switch (view) {
+        case 'account':
+            return {
+                title: 'Your Account',
+                copy: 'Manage your sign-in and password reset options.'
+            };
+        case 'register':
+            return {
+                title: 'Create Account',
+                copy: 'Save your account with email and password.'
+            };
+        case 'forgot':
+            return {
+                title: 'Forgot Password',
+                copy: 'Enter your email and the reset link will be sent there when email delivery is configured.'
+            };
+        case 'reset':
+            return {
+                title: 'Reset Password',
+                copy: 'Choose a new password for your account.'
+            };
+        case 'login':
+        default:
+            return {
+                title: 'Login',
+                copy: 'Sign in to keep premium access tied to your account.'
+            };
+    }
+}
+
+function getAuthFormMessageElement(view) {
+    return authFormMessageElements.find((element) => element.dataset.authFormMessage === view) || null;
+}
+
+function getAuthFieldErrorElement(fieldId) {
+    return authFieldErrorElements.find((element) => element.dataset.authFieldError === fieldId) || null;
+}
+
+function clearAuthFieldError(fieldId) {
+    const errorElement = getAuthFieldErrorElement(fieldId);
+    if (!errorElement) {
+        return;
+    }
+
+    errorElement.hidden = true;
+    errorElement.textContent = '';
+}
+
+function setAuthFieldError(fieldId, message) {
+    const errorElement = getAuthFieldErrorElement(fieldId);
+    if (!errorElement) {
+        return;
+    }
+
+    errorElement.hidden = !message;
+    errorElement.textContent = message || '';
+}
+
+function clearAuthFormMessage(view) {
+    const messageElement = getAuthFormMessageElement(view);
+    if (!messageElement) {
+        return;
+    }
+
+    messageElement.hidden = true;
+    messageElement.textContent = '';
+    messageElement.dataset.state = '';
+}
+
+function setAuthFormMessage(view, message = '', state = 'error') {
+    const messageElement = getAuthFormMessageElement(view);
+    if (!messageElement) {
+        return;
+    }
+
+    if (!message) {
+        clearAuthFormMessage(view);
+        return;
+    }
+
+    messageElement.hidden = false;
+    messageElement.textContent = message;
+    messageElement.dataset.state = state;
+}
+
+function clearForgotResetPreview() {
+    if (!forgotResetPreview || !forgotResetPreviewLink) {
+        return;
+    }
+
+    forgotResetPreview.hidden = true;
+    forgotResetPreviewLink.href = '#';
+}
+
+function setForgotResetPreview(url = '') {
+    if (!forgotResetPreview || !forgotResetPreviewLink) {
+        return;
+    }
+
+    if (!url) {
+        clearForgotResetPreview();
+        return;
+    }
+
+    forgotResetPreview.hidden = false;
+    forgotResetPreviewLink.href = url;
+}
+
+function clearAuthViewFeedback(view) {
+    switch (view) {
+        case 'register':
+            clearAuthFieldError('registerEmail');
+            clearAuthFieldError('registerPassword');
+            clearAuthFieldError('registerConfirmPassword');
+            clearAuthFormMessage('register');
+            break;
+        case 'login':
+            clearAuthFieldError('loginEmail');
+            clearAuthFieldError('loginPassword');
+            clearAuthFormMessage('login');
+            break;
+        case 'forgot':
+            clearAuthFieldError('forgotPasswordEmail');
+            clearAuthFormMessage('forgot');
+            clearForgotResetPreview();
+            break;
+        case 'reset':
+            clearAuthFieldError('resetPasswordInput');
+            clearAuthFormMessage('reset');
+            break;
+        default:
+            break;
+    }
+}
+
+function clearAllAuthFeedback() {
+    ['register', 'login', 'forgot', 'reset'].forEach((view) => clearAuthViewFeedback(view));
+}
+
+function updateAuthModalFooter(view) {
+    if (authFooterForgotBtn) {
+        authFooterForgotBtn.hidden = !['register', 'login'].includes(view);
+    }
+    if (authFooterBackBtn) {
+        authFooterBackBtn.hidden = !['forgot', 'reset'].includes(view);
+    }
+}
+
+function setAuthModalOpen(isOpen) {
+    if (!authModal) {
+        return;
+    }
+
+    authModal.hidden = !isOpen;
+    authModal.setAttribute('aria-hidden', String(!isOpen));
+    document.body.classList.toggle('auth-modal-open', isOpen);
+    if (!isOpen) {
+        clearAllAuthFeedback();
+    }
+}
+
+function focusAuthViewField(view) {
+    const focusTargetByView = {
+        account: openResetPasswordFromAccountBtn,
+        register: registerEmail,
+        login: loginEmail,
+        forgot: forgotPasswordEmail,
+        reset: resetPasswordInput
+    };
+    const target = focusTargetByView[view];
+    if (target instanceof HTMLElement) {
+        target.focus();
+    }
+}
+
+function getResetTokenFromUrl() {
+    return new URLSearchParams(window.location.search).get('reset_token')?.trim() || '';
+}
+
+function removeSearchParams(...keysToRemove) {
+    const params = new URLSearchParams(window.location.search);
+    let changed = false;
+
+    keysToRemove.forEach((key) => {
+        if (params.has(key)) {
+            params.delete(key);
+            changed = true;
+        }
+    });
+
+    if (!changed) {
+        return;
+    }
+
+    const queryString = params.toString();
+    const nextUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ''}${window.location.hash || ''}`;
+    window.history.replaceState({}, document.title, nextUrl);
+}
+
+function getPremiumBadgeDetails() {
+    if (accountState.user?.has_premium_access) {
+        if (accountState.user.premium_source === 'lifetime') {
+            return {
+                text: 'Lifetime premium',
+                isActive: true,
+                summary: 'Premium lifetime access is active on this account.'
+            };
+        }
+        if (accountState.user.premium_source === 'whitelist') {
+            return {
+                text: 'Premium whitelisted',
+                isActive: true,
+                summary: 'Premium access is active on this account from the backend whitelist.'
+            };
+        }
+        return {
+            text: 'Premium subscription',
+            isActive: true,
+            summary: 'Premium access is active on this account.'
+        };
+    }
+
+    if (hasLifetimePremiumUnlock()) {
+        return {
+            text: 'Browser lifetime unlock',
+            isActive: true,
+            summary: 'Premium is unlocked in this browser from an earlier purchase.'
+        };
+    }
+
+    if (hasActivePremiumSubscription()) {
+        return {
+            text: 'Browser premium active',
+            isActive: true,
+            summary: 'Premium is active in this browser from an earlier purchase.'
+        };
+    }
+
+    return {
+        text: '',
+        isActive: false,
+        summary: 'Premium is not active on this account yet.'
+    };
+}
+
+function updateAccountUi() {
+    const premiumDetails = getPremiumBadgeDetails();
+    const premiumStatusText = premiumDetails.isActive ? premiumDetails.text : 'Premium inactive';
+
+    if (accountState.isAuthenticated && accountState.user) {
+        if (accountSummaryText) {
+            accountSummaryText.textContent = `${accountState.user.email}. ${premiumDetails.summary}`;
+        }
+        if (authAccountEmailValue) {
+            authAccountEmailValue.textContent = accountState.user.email;
+        }
+        if (authAccountStatusValue) {
+            authAccountStatusValue.textContent = premiumStatusText;
+        }
+        if (authAccountSummary) {
+            authAccountSummary.textContent = `Signed in as ${accountState.user.email}. ${premiumDetails.summary}`;
+        }
+        if (accountSignedOutActions) {
+            accountSignedOutActions.hidden = true;
+        }
+        if (accountSignedInActions) {
+            accountSignedInActions.hidden = false;
+        }
+    } else {
+        if (accountSummaryText) {
+            accountSummaryText.textContent = premiumDetails.isActive
+                ? `${premiumDetails.summary} Log in before checkout to save future premium access to your email.`
+                : 'Create an account to save premium access to your email and stay signed in.';
+        }
+        if (authAccountEmailValue) {
+            authAccountEmailValue.textContent = '--';
+        }
+        if (authAccountStatusValue) {
+            authAccountStatusValue.textContent = premiumStatusText;
+        }
+        if (authAccountSummary) {
+            authAccountSummary.textContent = 'Signed out.';
+        }
+        if (accountSignedOutActions) {
+            accountSignedOutActions.hidden = false;
+        }
+        if (accountSignedInActions) {
+            accountSignedInActions.hidden = true;
+        }
+        if (accountState.activeView === 'account') {
+            accountState.activeView = 'login';
+        }
+    }
+
+    if (currentImageSource) {
+        updateBlueprintSizeOptions(currentImageOriginalWidth, currentImageOriginalHeight, sizeSelector.value);
+    }
+}
+
+function setAuthenticatedUser(user) {
+    accountState.isAuthenticated = !!user;
+    accountState.user = user || null;
+    updateAccountUi();
+}
+
+function setAuthModalView(view, options = {}) {
+    const requestedView = typeof view === 'string' ? view : 'login';
+    const resetTokenValue = resetPasswordToken?.value?.trim() || getResetTokenFromUrl();
+    let normalizedView = requestedView;
+
+    if (normalizedView === 'account' && !accountState.isAuthenticated) {
+        normalizedView = 'login';
+    }
+    if (normalizedView === 'reset' && !resetTokenValue) {
+        normalizedView = accountState.isAuthenticated ? 'account' : 'forgot';
+    }
+
+    accountState.activeView = normalizedView;
+
+    const activeTopView = normalizedView === 'register'
+        ? 'register'
+        : (['login', 'forgot', 'reset'].includes(normalizedView) ? 'login' : null);
+
+    authTabButtons.forEach((button) => {
+        const buttonView = button.dataset.authViewTrigger;
+        const isActive = buttonView === activeTopView;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-selected', String(isActive));
+    });
+
+    authPanels.forEach((panel) => {
+        const isActive = panel.dataset.authView === normalizedView;
+        panel.hidden = !isActive;
+    });
+
+    const viewConfig = getAuthViewConfig(normalizedView);
+    if (authModalTitle) {
+        authModalTitle.textContent = viewConfig.title;
+    }
+    if (authModalCopy) {
+        authModalCopy.textContent = viewConfig.copy;
+    }
+    updateAuthModalFooter(normalizedView);
+    if (!options.preserveStatus) {
+        clearAuthViewFeedback(normalizedView);
+    }
+    if (options.open !== false) {
+        setAuthModalOpen(true);
+    }
+
+    window.requestAnimationFrame(() => focusAuthViewField(normalizedView));
+}
+
+function hydrateResetTokenFromUrl() {
+    const token = getResetTokenFromUrl();
+    if (!resetPasswordToken) {
+        return;
+    }
+
+    resetPasswordToken.value = token;
+    if (token) {
+        setAuthModalView('reset', { preserveStatus: true });
+    }
+}
+
+function setRegisterError(message) {
+    if (message === AUTH_EMAIL_ERROR_MESSAGE || message === 'Email already in use.') {
+        setAuthFieldError('registerEmail', message);
+        return;
+    }
+
+    if (message === AUTH_PASSWORD_TOO_SHORT_MESSAGE || message === AUTH_PASSWORD_NUMBER_MESSAGE) {
+        setAuthFieldError('registerPassword', message);
+        return;
+    }
+
+    if (message === AUTH_PASSWORD_MISMATCH_MESSAGE) {
+        setAuthFieldError('registerConfirmPassword', message);
+        return;
+    }
+
+    setAuthFormMessage('register', message || 'Unable to create the account right now.');
+}
+
+function setLoginError(message) {
+    if (message === AUTH_EMAIL_ERROR_MESSAGE || message === 'Account not found.') {
+        setAuthFieldError('loginEmail', message);
+        return;
+    }
+
+    if (message === AUTH_PASSWORD_REQUIRED_MESSAGE || message === 'Wrong password.') {
+        setAuthFieldError('loginPassword', message);
+        return;
+    }
+
+    setAuthFormMessage('login', message || 'Unable to log in right now.');
+}
+
+function setForgotPasswordError(message) {
+    if (message === AUTH_EMAIL_ERROR_MESSAGE || message === 'Account not found.') {
+        setAuthFieldError('forgotPasswordEmail', message);
+        return;
+    }
+
+    setAuthFormMessage('forgot', message || 'Unable to send a reset link right now.');
+}
+
+function setResetPasswordError(message) {
+    if (message === AUTH_PASSWORD_TOO_SHORT_MESSAGE || message === AUTH_PASSWORD_NUMBER_MESSAGE) {
+        setAuthFieldError('resetPasswordInput', message);
+        return;
+    }
+
+    setAuthFormMessage('reset', message || AUTH_RESET_INVALID_MESSAGE);
+}
+
+async function requestApiJson(url, options = {}) {
+    const requestOptions = {
+        credentials: 'include',
+        ...options
+    };
+
+    requestOptions.headers = {
+        'Accept': 'application/json',
+        ...(options.headers || {})
+    };
+
+    const response = await fetch(url, requestOptions);
+    const { payload, rawText } = await parseJsonResponse(response);
+    if (!response.ok) {
+        throw new Error(payload?.error || rawText || 'Request failed.');
+    }
+
+    return payload;
+}
+
+async function refreshAuthenticatedUser(options = {}) {
+    try {
+        const payload = await requestApiJson(getAuthApiUrl('/api/auth/me'));
+        setAuthenticatedUser(payload?.authenticated ? payload.user || null : null);
+        return payload?.user || null;
+    } catch (error) {
+        if (!options.quiet) {
+            console.error('[auth] Failed to load current session.', error);
+        }
+        setAuthenticatedUser(null);
+        return null;
+    }
+}
+
+function setAuthFormPending(form, isPending) {
+    if (!(form instanceof HTMLFormElement) && !(form instanceof HTMLElement)) {
+        return;
+    }
+
+    form.querySelectorAll('input, button').forEach((element) => {
+        element.disabled = isPending;
+    });
+}
+
+function clearAuthFeedbackForInput(input) {
+    if (!(input instanceof HTMLElement)) {
+        return;
+    }
+
+    switch (input.id) {
+        case 'registerEmail':
+            clearAuthFieldError('registerEmail');
+            clearAuthFormMessage('register');
+            break;
+        case 'registerPassword':
+            clearAuthFieldError('registerPassword');
+            clearAuthFieldError('registerConfirmPassword');
+            clearAuthFormMessage('register');
+            updateRegisterPasswordMatchFeedback();
+            break;
+        case 'registerConfirmPassword':
+            clearAuthFieldError('registerConfirmPassword');
+            clearAuthFormMessage('register');
+            updateRegisterPasswordMatchFeedback();
+            break;
+        case 'loginEmail':
+            clearAuthFieldError('loginEmail');
+            clearAuthFormMessage('login');
+            break;
+        case 'loginPassword':
+            clearAuthFieldError('loginPassword');
+            clearAuthFormMessage('login');
+            break;
+        case 'forgotPasswordEmail':
+            clearAuthFieldError('forgotPasswordEmail');
+            clearAuthFormMessage('forgot');
+            clearForgotResetPreview();
+            break;
+        case 'resetPasswordInput':
+            clearAuthFieldError('resetPasswordInput');
+            clearAuthFormMessage('reset');
+            break;
+        default:
+            break;
+    }
+}
+
+function updateRegisterPasswordMatchFeedback() {
+    if (!registerPassword || !registerConfirmPassword) {
+        return;
+    }
+
+    const passwordValue = String(registerPassword.value || '').trim();
+    const confirmPasswordValue = String(registerConfirmPassword.value || '').trim();
+    if (!confirmPasswordValue) {
+        clearAuthFieldError('registerConfirmPassword');
+        return;
+    }
+
+    if (passwordValue !== confirmPasswordValue) {
+        setAuthFieldError('registerConfirmPassword', AUTH_PASSWORD_MISMATCH_MESSAGE);
+        return;
+    }
+
+    clearAuthFieldError('registerConfirmPassword');
+}
+
+async function submitRegisterForm(event) {
+    event.preventDefault();
+
+    clearAuthViewFeedback('register');
+    let email;
+    let password;
+    let confirmPassword;
+    try {
+        email = validateEmailInputValue(registerEmail.value);
+        password = validatePasswordInputValue(registerPassword.value);
+        confirmPassword = validateMatchingPasswords(password, registerConfirmPassword.value);
+    } catch (error) {
+        setRegisterError(error.message || AUTH_EMAIL_ERROR_MESSAGE);
+        return;
+    }
+
+    setAuthFormPending(registerForm, true);
+    try {
+        const payload = await requestApiJson(getAuthApiUrl('/api/auth/register'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email, password, confirm_password: confirmPassword })
+        });
+        setAuthenticatedUser(payload?.user || null);
+        registerForm.reset();
+        setAuthModalOpen(false);
+    } catch (error) {
+        setRegisterError(error.message || 'Unable to create the account right now.');
+    } finally {
+        setAuthFormPending(registerForm, false);
+    }
+}
+
+async function submitLoginForm(event) {
+    event.preventDefault();
+
+    clearAuthViewFeedback('login');
+    let email;
+    try {
+        email = validateEmailInputValue(loginEmail.value);
+    } catch (error) {
+        setLoginError(error.message || AUTH_EMAIL_ERROR_MESSAGE);
+        return;
+    }
+
+    const password = String(loginPassword.value || '').trim();
+    if (!password) {
+        setLoginError(AUTH_PASSWORD_REQUIRED_MESSAGE);
+        return;
+    }
+
+    setAuthFormPending(loginForm, true);
+    try {
+        const payload = await requestApiJson(getAuthApiUrl('/api/auth/login'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email, password })
+        });
+        setAuthenticatedUser(payload?.user || null);
+        loginForm.reset();
+        setAuthModalOpen(false);
+    } catch (error) {
+        setLoginError(error.message || 'Unable to log in right now.');
+    } finally {
+        setAuthFormPending(loginForm, false);
+    }
+}
+
+async function submitForgotPasswordForm(event) {
+    event.preventDefault();
+
+    clearAuthViewFeedback('forgot');
+    let email;
+    try {
+        email = validateEmailInputValue(forgotPasswordEmail.value);
+    } catch (error) {
+        setForgotPasswordError(error.message || AUTH_EMAIL_ERROR_MESSAGE);
+        return;
+    }
+
+    setAuthFormPending(forgotPasswordForm, true);
+    try {
+        const payload = await requestApiJson(getAuthApiUrl('/api/auth/forgot-password'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email })
+        });
+        setAuthFormMessage('forgot', payload?.message || 'Password reset request sent.', 'success');
+        setForgotResetPreview(typeof payload?.reset_url === 'string' ? payload.reset_url : '');
+    } catch (error) {
+        setForgotPasswordError(error.message || 'Unable to send a reset link right now.');
+    } finally {
+        setAuthFormPending(forgotPasswordForm, false);
+    }
+}
+
+async function submitResetPasswordForm(event) {
+    event.preventDefault();
+
+    clearAuthViewFeedback('reset');
+    const token = resetPasswordToken?.value?.trim() || getResetTokenFromUrl();
+    if (!token) {
+        setResetPasswordError(AUTH_RESET_INVALID_MESSAGE);
+        return;
+    }
+
+    let password;
+    try {
+        password = validatePasswordInputValue(resetPasswordInput.value);
+    } catch (error) {
+        setResetPasswordError(error.message || AUTH_PASSWORD_TOO_SHORT_MESSAGE);
+        return;
+    }
+
+    setAuthFormPending(resetPasswordForm, true);
+    try {
+        const payload = await requestApiJson(getAuthApiUrl('/api/auth/reset-password'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ token, password })
+        });
+        setAuthenticatedUser(payload?.user || null);
+        resetPasswordForm.reset();
+        if (resetPasswordToken) {
+            resetPasswordToken.value = '';
+        }
+        removeSearchParams('reset_token');
+        setAuthModalOpen(false);
+    } catch (error) {
+        setResetPasswordError(error.message || AUTH_RESET_INVALID_MESSAGE);
+    } finally {
+        setAuthFormPending(resetPasswordForm, false);
+    }
+}
+
+async function logoutCurrentAccount() {
+    try {
+        await requestApiJson(getAuthApiUrl('/api/auth/logout'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+    } catch (error) {
+        console.error('[auth] Logout failed.', error);
+    } finally {
+        setAuthenticatedUser(null);
+        setAuthModalOpen(false);
+    }
+}
+
 async function verifyCheckoutReturn() {
     const params = new URLSearchParams(window.location.search);
     const checkoutState = params.get('checkout');
@@ -391,27 +1185,49 @@ async function verifyCheckoutReturn() {
     }
 
     try {
-        const requestUrl = getCheckoutStatusApiUrl(sessionId);
-        console.info('[billing] Verifying checkout session.', { requestUrl, sessionId });
-        const response = await fetch(requestUrl, {
-            headers: {
-                'Accept': 'application/json'
+        const fetchCheckoutStatusPayload = async () => {
+            const requestUrl = getCheckoutStatusApiUrl(sessionId);
+            console.info('[billing] Verifying checkout session.', { requestUrl, sessionId });
+            const response = await fetch(requestUrl, {
+                credentials: 'include',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+            const { payload, rawText, contentType } = await parseJsonResponse(response);
+            console.info('[billing] Checkout verification response received.', {
+                status: response.status,
+                ok: response.ok,
+                contentType,
+                payload,
+                rawText
+            });
+            if (!response.ok) {
+                throw new Error(payload?.error || rawText || 'Unable to verify the checkout session.');
             }
-        });
-        const { payload, rawText, contentType } = await parseJsonResponse(response);
-        console.info('[billing] Checkout verification response received.', {
-            status: response.status,
-            ok: response.ok,
-            contentType,
-            payload,
-            rawText
-        });
-        if (!response.ok) {
-            throw new Error(payload?.error || rawText || 'Unable to verify the checkout session.');
-        }
+            return payload;
+        };
 
+        let payload = await fetchCheckoutStatusPayload();
         if (payload?.is_paid && typeof payload.purchase_type === 'string') {
-            storeVerifiedUnlock(payload.purchase_type);
+            if (!payload?.premium_activated) {
+                for (let attempt = 0; attempt < 8; attempt += 1) {
+                    await delay(1000);
+                    payload = await fetchCheckoutStatusPayload();
+                    if (payload?.premium_activated) {
+                        break;
+                    }
+                }
+            }
+
+            if (payload?.premium_activated && payload?.user) {
+                setAuthenticatedUser(payload.user);
+                storeVerifiedUnlock(payload.purchase_type);
+            } else {
+                await refreshAuthenticatedUser({ quiet: true });
+                setUpgradeModalStatus('Payment received. Premium will activate as soon as Stripe confirms the signed webhook.', false);
+            }
+
             if (currentImageSource) {
                 updateBlueprintSizeOptions(currentImageOriginalWidth, currentImageOriginalHeight, sizeSelector.value);
             }
@@ -434,6 +1250,12 @@ async function verifyCheckoutReturn() {
 async function startCheckout(purchaseType) {
     setUpgradeModalStatus('');
 
+    if (!accountState.isAuthenticated) {
+        setUpgradeModalStatus('Create an account or log in before checkout so premium access is saved to your account.', true);
+        setAuthModalView('login');
+        return;
+    }
+
     const requestPayload = {
         purchase_type: purchaseType
     };
@@ -452,6 +1274,7 @@ async function startCheckout(purchaseType) {
         });
         const response = await fetch(requestUrl, {
             method: 'POST',
+            credentials: 'include',
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
@@ -3181,6 +4004,92 @@ if (upgradeModalCloseBtn) {
     upgradeModalCloseBtn.addEventListener('click', closeUpgradeModal);
 }
 
+if (authModal) {
+    authModal.addEventListener('click', (event) => {
+        if (event.target instanceof HTMLElement && event.target.hasAttribute('data-close-auth-modal')) {
+            setAuthModalOpen(false);
+        }
+    });
+}
+
+if (authModalCloseBtn) {
+    authModalCloseBtn.addEventListener('click', () => setAuthModalOpen(false));
+}
+
+authViewTriggerButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+        const nextView = button.dataset.authViewTrigger || 'login';
+        setAuthModalView(nextView);
+    });
+});
+
+if (authFooterForgotBtn) {
+    authFooterForgotBtn.addEventListener('click', () => setAuthModalView('forgot'));
+}
+
+if (authFooterBackBtn) {
+    authFooterBackBtn.addEventListener('click', () => setAuthModalView('login'));
+}
+
+if (openCreateAccountBtn) {
+    openCreateAccountBtn.addEventListener('click', () => setAuthModalView('register'));
+}
+
+if (openLoginBtn) {
+    openLoginBtn.addEventListener('click', () => setAuthModalView('login'));
+}
+
+if (openAccountBtn) {
+    openAccountBtn.addEventListener('click', () => setAuthModalView('account'));
+}
+
+if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+        void logoutCurrentAccount();
+    });
+}
+
+if (openResetPasswordFromAccountBtn) {
+    openResetPasswordFromAccountBtn.addEventListener('click', () => {
+        if (accountState.user?.email && forgotPasswordEmail) {
+            forgotPasswordEmail.value = accountState.user.email;
+        }
+        setAuthModalView('forgot');
+    });
+}
+
+if (registerForm) {
+    registerForm.addEventListener('submit', (event) => {
+        void submitRegisterForm(event);
+    });
+}
+
+if (loginForm) {
+    loginForm.addEventListener('submit', (event) => {
+        void submitLoginForm(event);
+    });
+}
+
+if (forgotPasswordForm) {
+    forgotPasswordForm.addEventListener('submit', (event) => {
+        void submitForgotPasswordForm(event);
+    });
+}
+
+if (resetPasswordForm) {
+    resetPasswordForm.addEventListener('submit', (event) => {
+        void submitResetPasswordForm(event);
+    });
+}
+
+[registerEmail, registerPassword, registerConfirmPassword, loginEmail, loginPassword, forgotPasswordEmail, resetPasswordInput].forEach((input) => {
+    if (!(input instanceof HTMLElement)) {
+        return;
+    }
+
+    input.addEventListener('input', () => clearAuthFeedbackForInput(input));
+});
+
 if (unlockCurrentBlueprintBtn) {
     console.info('[billing] Monthly premium button handler attached.');
     unlockCurrentBlueprintBtn.addEventListener('click', (event) => {
@@ -3212,6 +4121,9 @@ if (unlockLifetimeBtn) {
 }
 
 window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && authModal && !authModal.hidden) {
+        setAuthModalOpen(false);
+    }
     if (event.key === 'Escape' && upgradeModal && !upgradeModal.hidden) {
         closeUpgradeModal();
     }
@@ -3223,7 +4135,15 @@ updateBlueprintSizeOptions(1, 1, sizeSelector.value);
 updatePreviewCanvasScale();
 updateZoomDisplayLabel();
 handleInitialWorkspaceState();
-void verifyCheckoutReturn();
+updateAccountUi();
+
+async function initializeAccountSession() {
+    await refreshAuthenticatedUser({ quiet: true });
+    await verifyCheckoutReturn();
+    hydrateResetTokenFromUrl();
+}
+
+void initializeAccountSession();
 
 chatLauncher.addEventListener('click', () => setChatWidgetOpen(true));
 chatCloseBtn.addEventListener('click', () => {

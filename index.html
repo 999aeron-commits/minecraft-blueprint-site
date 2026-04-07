@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="app-api-origin" content="__APP_API_ORIGIN__">
     <title>Minecraft Image to Blueprint</title>
     <link rel="stylesheet" href="styles.css?v=__STATIC_ASSET_VERSION__">
 </head>
@@ -12,6 +13,20 @@
             <h1 class="site-title">The Photosynthesizer</h1>
             <p class="site-subtitle">Upload an image to convert it into pixel art that can be mapped to Minecraft blocks.</p>
             <p class="site-helper-note">Colors are optimized to match Minecraft blocks as closely as possible. Exact matches may vary.</p>
+            <section class="account-bar" id="accountBar" aria-label="Account controls">
+                <div class="account-bar-copy">
+                    <p class="account-bar-eyebrow">Account</p>
+                    <p id="accountSummaryText" class="account-summary-text">Create an account to save premium access to your email and stay signed in.</p>
+                </div>
+                <div id="accountSignedOutActions" class="account-bar-actions">
+                    <button id="openCreateAccountBtn" type="button">Create Account</button>
+                    <button id="openLoginBtn" type="button">Login</button>
+                </div>
+                <div id="accountSignedInActions" class="account-bar-actions" hidden>
+                    <button id="openAccountBtn" type="button">Account</button>
+                    <button id="logoutBtn" type="button">Logout</button>
+                </div>
+            </section>
         </header>
         <main>
             <section id="welcomeState" class="welcome-state">
@@ -269,16 +284,124 @@
                 <button id="unlockCurrentBlueprintBtn" class="upgrade-option" type="button">
                     <span class="upgrade-option-title">Unlock XL + Mega sizes</span>
                     <span class="upgrade-option-price">$0.99/month</span>
-                    <span class="upgrade-option-copy">Cancel anytime. XL and Mega sizes stay unlocked while your subscription is active.</span>
+                    <span class="upgrade-option-copy">Cancel anytime. XL and Mega sizes stay unlocked while your subscription is active on your account.</span>
                 </button>
                 <button id="unlockLifetimeBtn" class="upgrade-option upgrade-option-lifetime" type="button">
                     <span class="upgrade-option-badge">Best value</span>
                     <span class="upgrade-option-title">Unlock forever</span>
                     <span class="upgrade-option-price">$10 lifetime</span>
-                    <span class="upgrade-option-copy">XL and Mega sizes, one-time payment, future upgrades included on this browser.</span>
+                    <span class="upgrade-option-copy">XL and Mega sizes, one-time payment, future upgrades included on your account.</span>
                 </button>
             </div>
             <p id="upgradeModalStatus" class="upgrade-modal-status" hidden></p>
+        </section>
+    </div>
+    <div id="authModal" class="auth-modal" hidden aria-hidden="true">
+        <div class="auth-modal-backdrop" data-close-auth-modal></div>
+        <section class="auth-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+            <div class="auth-modal-header">
+                <div>
+                    <p class="auth-modal-eyebrow">Account</p>
+                    <h2 id="authModalTitle">Account</h2>
+                    <p id="authModalCopy" class="auth-modal-copy">Create an account, log in, or reset your password.</p>
+                </div>
+                <button id="authModalCloseBtn" class="auth-modal-close" type="button" aria-label="Close account modal">-</button>
+            </div>
+            <div class="auth-modal-tabs" role="tablist" aria-label="Account views">
+                <button class="auth-modal-tab" id="authTabCreate" type="button" data-auth-view-trigger="register">Create Account</button>
+                <button class="auth-modal-tab" id="authTabLogin" type="button" data-auth-view-trigger="login">Login</button>
+            </div>
+
+            <section class="auth-panel" data-auth-view="account" hidden>
+                <div class="auth-panel-card auth-account-card">
+                    <div class="auth-account-row">
+                        <span class="auth-account-label">Email</span>
+                        <strong id="authAccountEmailValue" class="auth-account-value">--</strong>
+                    </div>
+                    <div class="auth-account-row">
+                        <span class="auth-account-label">Premium</span>
+                        <strong id="authAccountStatusValue" class="auth-account-value">Inactive</strong>
+                    </div>
+                    <p id="authAccountSummary" class="auth-form-note">Signed in.</p>
+                    <div class="auth-account-actions">
+                        <button id="openResetPasswordFromAccountBtn" type="button">Reset Password</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="auth-panel" data-auth-view="register" hidden>
+                <form id="registerForm" class="auth-form auth-panel-card" data-auth-form="register" novalidate>
+                    <div class="field-group">
+                        <label for="registerEmail">Email</label>
+                        <input id="registerEmail" type="email" autocomplete="email" required aria-describedby="registerEmailError">
+                        <p id="registerEmailError" class="auth-field-error" data-auth-field-error="registerEmail" hidden></p>
+                    </div>
+                    <div class="field-group">
+                        <label for="registerPassword">Password</label>
+                        <input id="registerPassword" type="password" autocomplete="new-password" required aria-describedby="registerPasswordError">
+                        <p id="registerPasswordError" class="auth-field-error" data-auth-field-error="registerPassword" hidden></p>
+                    </div>
+                    <div class="field-group">
+                        <label for="registerConfirmPassword">Confirm Password</label>
+                        <input id="registerConfirmPassword" type="password" autocomplete="new-password" required aria-describedby="registerConfirmPasswordError">
+                        <p id="registerConfirmPasswordError" class="auth-field-error" data-auth-field-error="registerConfirmPassword" hidden></p>
+                    </div>
+                    <p class="auth-form-note">Use at least 5 characters and include at least 1 number.</p>
+                    <p id="registerFormMessage" class="auth-form-message" data-auth-form-message="register" hidden></p>
+                    <button id="registerSubmitBtn" type="submit">Create Account</button>
+                </form>
+            </section>
+
+            <section class="auth-panel" data-auth-view="login" hidden>
+                <form id="loginForm" class="auth-form auth-panel-card" data-auth-form="login" novalidate>
+                    <div class="field-group">
+                        <label for="loginEmail">Email</label>
+                        <input id="loginEmail" type="email" autocomplete="email" required aria-describedby="loginEmailError">
+                        <p id="loginEmailError" class="auth-field-error" data-auth-field-error="loginEmail" hidden></p>
+                    </div>
+                    <div class="field-group">
+                        <label for="loginPassword">Password</label>
+                        <input id="loginPassword" type="password" autocomplete="current-password" required aria-describedby="loginPasswordError">
+                        <p id="loginPasswordError" class="auth-field-error" data-auth-field-error="loginPassword" hidden></p>
+                    </div>
+                    <p id="loginFormMessage" class="auth-form-message" data-auth-form-message="login" hidden></p>
+                    <button id="loginSubmitBtn" type="submit">Login</button>
+                </form>
+            </section>
+
+            <section class="auth-panel" data-auth-view="forgot" hidden>
+                <form id="forgotPasswordForm" class="auth-form auth-panel-card" data-auth-form="forgot" novalidate>
+                    <div class="field-group">
+                        <label for="forgotPasswordEmail">Email</label>
+                        <input id="forgotPasswordEmail" type="email" autocomplete="email" required aria-describedby="forgotPasswordEmailError">
+                        <p id="forgotPasswordEmailError" class="auth-field-error" data-auth-field-error="forgotPasswordEmail" hidden></p>
+                    </div>
+                    <p id="forgotPasswordFormMessage" class="auth-form-message" data-auth-form-message="forgot" hidden></p>
+                    <div id="forgotResetPreview" class="auth-reset-preview" hidden>
+                        <p class="auth-reset-preview-label">Local reset link</p>
+                        <a id="forgotResetPreviewLink" class="auth-reset-preview-link" href="#" target="_self" rel="noopener">Open reset screen</a>
+                    </div>
+                    <button id="forgotPasswordSubmitBtn" type="submit">Send Reset Link</button>
+                </form>
+            </section>
+
+            <section class="auth-panel" data-auth-view="reset" hidden>
+                <form id="resetPasswordForm" class="auth-form auth-panel-card" data-auth-form="reset" novalidate>
+                    <input id="resetPasswordToken" type="hidden">
+                    <div class="field-group">
+                        <label for="resetPasswordInput">New Password</label>
+                        <input id="resetPasswordInput" type="password" autocomplete="new-password" required aria-describedby="resetPasswordError">
+                        <p id="resetPasswordError" class="auth-field-error" data-auth-field-error="resetPasswordInput" hidden></p>
+                    </div>
+                    <p class="auth-form-note">Use at least 5 characters and include at least 1 number.</p>
+                    <p id="resetPasswordFormMessage" class="auth-form-message" data-auth-form-message="reset" hidden></p>
+                    <button id="resetPasswordSubmitBtn" type="submit">Reset Password</button>
+                </form>
+            </section>
+            <div class="auth-modal-footer">
+                <button id="authFooterForgotBtn" type="button" class="auth-link-button">Forgot Password?</button>
+                <button id="authFooterBackBtn" type="button" class="auth-link-button" hidden>Back to Login</button>
+            </div>
         </section>
     </div>
     <script src="app.js?v=__STATIC_ASSET_VERSION__"></script>
