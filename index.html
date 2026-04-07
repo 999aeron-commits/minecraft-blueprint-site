@@ -4,40 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Minecraft Image to Blueprint</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=999">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Minecraft Blueprint Generator</h1>
-            <p>Upload an image to convert it into pixel art that can be mapped to Minecraft blocks.</p>
+            <h1 class="site-title">The Photosynthesizer</h1>
+            <p class="site-subtitle">Upload an image to convert it into pixel art that can be mapped to Minecraft blocks.</p>
+            <p class="site-helper-note">Colors are optimized to match Minecraft blocks as closely as possible. Exact matches may vary.</p>
         </header>
         <main>
-            <div class="project-panel">
-                <h2>Project</h2>
-                <div class="project-controls">
-                    <div class="project-field">
-                        <label for="projectNameInput">Project Name</label>
-                        <input type="text" id="projectNameInput" placeholder="Enter a project name">
-                    </div>
-                    <button id="saveProjectBtn" type="button">Save Project</button>
-                    <div class="project-field">
-                        <label for="loadProjectSelect">Saved Projects</label>
-                        <select id="loadProjectSelect">
-                            <option value="">Select a project</option>
-                        </select>
-                    </div>
-                    <button id="loadProjectBtn" type="button">Load Project</button>
-                    <button id="deleteProjectBtn" type="button">Delete Project</button>
-                </div>
-                <div id="projectMessage" class="project-message">No saved projects yet.</div>
-                <div id="savedProjectsList" class="saved-projects-list"></div>
-            </div>
             <section id="welcomeState" class="welcome-state">
                 <div class="welcome-card">
                     <p class="welcome-eyebrow">Minecraft Blueprint Generator</p>
-                    <h2>Turn any image into a Minecraft block-by-block blueprint.</h2>
-                    <p class="welcome-copy">Upload a source image, tune the conversion, and follow a guided build workspace designed to make large pixel-art projects easier to plan and complete.</p>
+                    <p class="welcome-copy">Convert artwork, portraits, and pixel designs into a guided Minecraft blueprint with sections, materials, and build assistance.</p>
+                    <div class="welcome-upload-spotlight">
+                        <div class="welcome-upload-inner">
+                            <p class="welcome-upload-label">Start Here</p>
+                            <div class="welcome-actions">
+                                <label for="imageUpload" class="welcome-upload-button">Choose an Image to Begin</label>
+                            </div>
+                            <p class="welcome-upload-note">Upload a local image, choose your blueprint size, and the full workspace will open automatically.</p>
+                        </div>
+                    </div>
                     <div class="welcome-steps">
                         <div class="welcome-step">
                             <span class="welcome-step-number">1</span>
@@ -50,46 +39,17 @@
                             <span class="welcome-step-number">2</span>
                             <div>
                                 <h3>Choose blueprint size</h3>
-                                <p>Pick the scale and conversion settings that fit your build style and materials.</p>
+                                <p>Pick the scale and settings that match the level of detail you want to build.</p>
                             </div>
                         </div>
                         <div class="welcome-step">
                             <span class="welcome-step-number">3</span>
                             <div>
                                 <h3>Build it in Minecraft</h3>
-                                <p>Use the generated guide, sections, materials, and build mode to place blocks with confidence.</p>
+                                <p>Use the generated guide, sections, materials, and build mode to place blocks confidently.</p>
                             </div>
                         </div>
                     </div>
-                    <div class="template-section">
-                        <div class="template-section-header">
-                            <h3>Try a Template</h3>
-                            <p>Instantly explore the generator with built-in examples before uploading your own image.</p>
-                        </div>
-                        <div class="template-grid">
-                            <button class="template-card" type="button" data-template-name="Creeper Face" data-template-src="assets/templates/creeper-face.svg">
-                                <img src="assets/templates/creeper-face.svg" alt="Creeper face template preview">
-                                <span>Creeper face</span>
-                            </button>
-                            <button class="template-card" type="button" data-template-name="Mario Pixel Art" data-template-src="assets/templates/mario-pixel-art.svg">
-                                <img src="assets/templates/mario-pixel-art.svg" alt="Mario pixel art template preview">
-                                <span>Mario pixel art</span>
-                            </button>
-                            <button class="template-card" type="button" data-template-name="Heart Pixel Art" data-template-src="assets/templates/heart-pixel-art.svg">
-                                <img src="assets/templates/heart-pixel-art.svg" alt="Heart pixel art template preview">
-                                <span>Heart pixel art</span>
-                            </button>
-                            <button class="template-card" type="button" data-template-name="Minecraft Sword" data-template-src="assets/templates/minecraft-sword.svg">
-                                <img src="assets/templates/minecraft-sword.svg" alt="Minecraft sword template preview">
-                                <span>Minecraft sword</span>
-                            </button>
-                            <button class="template-card" type="button" data-template-name="Example Portrait" data-template-src="assets/templates/example-portrait.svg">
-                                <img src="assets/templates/example-portrait.svg" alt="Example portrait template preview">
-                                <span>Example portrait</span>
-                            </button>
-                        </div>
-                    </div>
-                    <label for="imageUpload" class="welcome-upload-button">Choose an Image to Begin</label>
                 </div>
             </section>
             <div id="appWorkspace" class="app-workspace hidden-before-upload">
@@ -108,94 +68,15 @@
                             <div class="field-group">
                                 <label for="sizeSelector">Blueprint Size</label>
                                 <select id="sizeSelector">
-                                    <option value="32">32 x 32</option>
-                                    <option value="64">64 x 64</option>
-                                    <option value="128">128 x 128</option>
+                                    <option value="16x16">Small</option>
+                                    <option value="32x32" selected>Medium</option>
+                                    <option value="64x64">Large</option>
+                                    <option value="128x128">X-Large</option>
+                                    <option value="256x256">Mega</option>
                                 </select>
                             </div>
                         </div>
                     </section>
-                    <section class="setup-card">
-                        <div class="setup-card-header">
-                            <h3>Blueprint Settings</h3>
-                            <p>Control how the viewer and sectioned build plan are presented.</p>
-                        </div>
-                        <div class="setup-fields">
-                            <div class="field-group">
-                                <label for="viewSelector">View</label>
-                                <select id="viewSelector">
-                                    <option value="color">Color View</option>
-                                    <option value="label">Label View</option>
-                                </select>
-                            </div>
-                            <div class="field-group">
-                                <label for="paletteSelector">Palette</label>
-                                <select id="paletteSelector">
-                                    <option value="all">All Blocks</option>
-                                    <option value="concrete">Concrete Only</option>
-                                    <option value="wool">Wool Only</option>
-                                    <option value="terracotta">Terracotta Only</option>
-                                    <option value="survival">Survival Friendly</option>
-                                </select>
-                            </div>
-                        </div>
-                    </section>
-                    <section class="setup-card">
-                        <div class="setup-card-header">
-                            <h3>Conversion Options</h3>
-                            <p>Choose the output style that best fits accuracy, readability, or survival play.</p>
-                        </div>
-                        <div class="setup-fields">
-                            <div class="field-group">
-                                <label for="conversionModeSelector">Conversion Mode</label>
-                                <select id="conversionModeSelector">
-                                    <option value="best-match">Best Match</option>
-                                    <option value="clean-build">Clean Build</option>
-                                    <option value="survival-friendly">Survival Friendly</option>
-                                    <option value="high-contrast">High Contrast</option>
-                                    <option value="portrait-mode">Portrait Mode</option>
-                                </select>
-                            </div>
-                        </div>
-                    </section>
-                    <div class="image-adjustments-panel">
-                        <div class="setup-card-header">
-                            <h3>Image Adjustments</h3>
-                            <p>Fine-tune the source image before block matching begins.</p>
-                        </div>
-                        <div class="adjustment-control">
-                            <label for="brightnessSlider">Brightness: <span id="brightnessValue">100%</span></label>
-                            <input type="range" id="brightnessSlider" min="50" max="150" value="100">
-                        </div>
-                        <div class="adjustment-control">
-                            <label for="contrastSlider">Contrast: <span id="contrastValue">100%</span></label>
-                            <input type="range" id="contrastSlider" min="50" max="150" value="100">
-                        </div>
-                        <div class="adjustment-control">
-                            <label for="saturationSlider">Saturation: <span id="saturationValue">100%</span></label>
-                            <input type="range" id="saturationSlider" min="0" max="200" value="100">
-                        </div>
-                        <button id="resetAdjustmentsBtn" type="button">Reset Adjustments</button>
-                    </div>
-                    <div class="image-adjustments-panel simplification-panel">
-                        <div class="setup-card-header">
-                            <h3>Image Simplification</h3>
-                            <p>Reduce noise and preserve major forms for cleaner, easier builds.</p>
-                        </div>
-                        <div class="adjustment-control">
-                            <label for="detailLevelSlider">Detail Level: <span id="detailLevelValue">Medium</span></label>
-                            <input type="range" id="detailLevelSlider" min="0" max="100" value="50">
-                        </div>
-                        <div class="adjustment-control">
-                            <label for="noiseReductionSlider">Noise Reduction: <span id="noiseReductionValue">Low</span></label>
-                            <input type="range" id="noiseReductionSlider" min="0" max="100" value="25">
-                        </div>
-                        <div class="adjustment-control">
-                            <label for="edgeStrengthSlider">Edge Strength: <span id="edgeStrengthValue">Medium</span></label>
-                            <input type="range" id="edgeStrengthSlider" min="0" max="100" value="50">
-                        </div>
-                        <button id="resetSimplificationBtn" type="button">Reset Simplification</button>
-                    </div>
                 </div>
             </div>
             <section class="workspace-shell">
@@ -205,6 +86,20 @@
                         <p>The main workspace for inspecting, comparing, and building your converted blueprint.</p>
                     </div>
                 </div>
+                <section class="project-info-bar" id="projectInfoBar">
+                    <div class="project-info-item">
+                        <span class="project-info-label">Blueprint Size</span>
+                        <span class="project-info-value" id="projectInfoSize">--</span>
+                    </div>
+                    <div class="project-info-item">
+                        <span class="project-info-label">Total Blocks</span>
+                        <span class="project-info-value" id="projectInfoBlocks">--</span>
+                    </div>
+                    <div class="project-info-item">
+                        <span class="project-info-label">Current Section</span>
+                        <span class="project-info-value" id="projectInfoSection">None</span>
+                    </div>
+                </section>
                 <div class="viewer-controls">
                     <div class="field-group compact-field">
                         <label for="sectionSizeSelector">Section Size</label>
@@ -220,12 +115,6 @@
                         <button id="resetZoom">Reset</button>
                     </div>
                     <span id="zoomLevel">Zoom: 100%</span>
-                </div>
-                <div class="view-mode-toggle" id="viewModeToggle">
-                    <button id="fullViewBtn" class="mode-btn active" type="button">Full Blueprint View</button>
-                    <button id="focusedViewBtn" class="mode-btn" type="button">Focused Section View</button>
-                    <button id="buildModeBtn" class="mode-btn" type="button">Build Mode</button>
-                    <button id="comparisonModeBtn" class="mode-btn" type="button">Comparison Mode</button>
                 </div>
                 <div class="workspace">
                 <section class="viewer-column">
@@ -276,6 +165,12 @@
                             </div>
                             <div id="blueprintViewer" class="viewer-container">
                                 <div id="blueprintGrid"></div>
+                                <div id="blueprintSectionHoverOverlay" class="section-hover-overlay" hidden aria-hidden="true">
+                                    <span class="section-hover-edge section-hover-edge-top"></span>
+                                    <span class="section-hover-edge section-hover-edge-right"></span>
+                                    <span class="section-hover-edge section-hover-edge-bottom"></span>
+                                    <span class="section-hover-edge section-hover-edge-left"></span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -297,33 +192,95 @@
                         </div>
                         <div id="focusedSectionViewer" class="viewer-container focused-viewer-container">
                             <div id="focusedSectionGrid"></div>
+                            <div id="focusedSectionHoverOverlay" class="section-hover-overlay" hidden aria-hidden="true">
+                                <span class="section-hover-edge section-hover-edge-top"></span>
+                                <span class="section-hover-edge section-hover-edge-right"></span>
+                                <span class="section-hover-edge section-hover-edge-bottom"></span>
+                                <span class="section-hover-edge section-hover-edge-left"></span>
+                            </div>
                         </div>
                     </div>
                 </section>
-                <aside class="sidebar">
-                    <div id="selectedBlockPanel" class="selected-block-panel">
-                        <h3>Selected Block</h3>
-                        <div id="selectedBlockInfo"></div>
+                <details id="blueprintLegendPanel" class="blueprint-legend-panel collapsible-panel workspace-legend-panel" open>
+                    <summary class="panel-summary">
+                        <span class="panel-summary-title">Blueprint Legend</span>
+                        <span class="panel-summary-meta">Block Key</span>
+                    </summary>
+                    <div class="panel-body">
+                        <div id="blueprintLegendInfo">Generate a blueprint to see every block used in the build.</div>
                     </div>
-                    <div id="sectionMapPanel" class="section-map-panel">
-                        <h3>Section Map</h3>
-                        <div id="sectionMapInfo">Upload an image to generate the section map.</div>
-                    </div>
-                    <div id="sectionMaterialsPanel" class="section-materials-panel">
-                        <h3>Section Materials</h3>
-                        <div id="sectionMaterialsInfo">Select a section to see its materials list.</div>
-                    </div>
-                    <div id="sectionsPanel" class="sections-panel">
-                        <!-- Sections will be generated here -->
-                    </div>
-                </aside>
+                </details>
                 </div>
             </section>
             <div id="tooltip" class="tooltip"></div>
-            <div id="status"></div>
             </div>
         </main>
     </div>
-    <script src="app.js"></script>
+    <div class="chat-widget" id="chatWidget" hidden>
+        <button
+            id="chatLauncher"
+            class="chat-widget-launcher"
+            type="button"
+            aria-controls="chatPanel"
+            aria-expanded="false"
+        >
+            Build Chat
+        </button>
+        <section id="chatPanel" class="chat-widget-panel" aria-label="Blueprint chatbot demo" hidden>
+            <div class="chat-widget-header">
+                <div>
+                    <p class="chat-widget-eyebrow">Blueprint Guide</p>
+                    <h2>Workshop Chat</h2>
+                </div>
+                <button id="chatCloseBtn" class="chat-widget-close" type="button" aria-label="Minimize chatbot">-</button>
+            </div>
+            <div id="chatMessages" class="chat-widget-messages" aria-live="polite">
+                <div id="chatEmptyState" class="chat-widget-empty">
+                    Send a message to preview the on-site chatbot shell.
+                </div>
+            </div>
+            <form id="chatForm" class="chat-widget-form">
+                <div class="chat-widget-input-row">
+                    <input
+                        id="chatInput"
+                        class="chat-widget-input"
+                        type="text"
+                        placeholder="Ask about your blueprint..."
+                        aria-label="Type a chat message"
+                        autocomplete="off"
+                    >
+                    <button id="chatSendBtn" type="submit">Send</button>
+                </div>
+            </form>
+        </section>
+    </div>
+    <div id="upgradeModal" class="upgrade-modal" hidden aria-hidden="true">
+        <div class="upgrade-modal-backdrop" data-close-upgrade-modal></div>
+        <section class="upgrade-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="upgradeModalTitle">
+            <div class="upgrade-modal-header">
+                <div>
+                    <p class="upgrade-modal-eyebrow">Premium Sizes</p>
+                    <h2 id="upgradeModalTitle">Unlock larger blueprint sizes</h2>
+                    <p id="upgradeModalDescription" class="upgrade-modal-copy">Unlock XL and Mega sizes with a monthly subscription or a lifetime unlock.</p>
+                </div>
+                <button id="upgradeModalCloseBtn" class="upgrade-modal-close" type="button" aria-label="Close upgrade modal">-</button>
+            </div>
+            <div class="upgrade-modal-options">
+                <button id="unlockCurrentBlueprintBtn" class="upgrade-option" type="button">
+                    <span class="upgrade-option-title">Unlock XL + Mega sizes</span>
+                    <span class="upgrade-option-price">$0.99/month</span>
+                    <span class="upgrade-option-copy">Cancel anytime. XL and Mega sizes stay unlocked while your subscription is active.</span>
+                </button>
+                <button id="unlockLifetimeBtn" class="upgrade-option upgrade-option-lifetime" type="button">
+                    <span class="upgrade-option-badge">Best value</span>
+                    <span class="upgrade-option-title">Unlock forever</span>
+                    <span class="upgrade-option-price">$10 lifetime</span>
+                    <span class="upgrade-option-copy">XL and Mega sizes, one-time payment, future upgrades included on this browser.</span>
+                </button>
+            </div>
+            <p id="upgradeModalStatus" class="upgrade-modal-status" hidden></p>
+        </section>
+    </div>
+    <script src="app.js?v=999"></script>
 </body>
 </html>

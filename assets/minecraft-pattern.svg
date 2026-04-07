@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="240" height="240" viewBox="0 0 240 240" shape-rendering="crispEdges">
+  <g opacity="0.74">
+    <image href="creeper.png" xlink:href="creeper.png" x="38" y="36" width="40" height="48" preserveAspectRatio="xMidYMid meet"/>
+    <image href="steve2.png" xlink:href="steve2.png" x="154" y="30" width="40" height="76" preserveAspectRatio="xMidYMid meet"/>
+    <image href="steve2.png" xlink:href="steve2.png" x="34" y="150" width="40" height="76" preserveAspectRatio="xMidYMid meet"/>
+    <image href="creeper.png" xlink:href="creeper.png" x="158" y="156" width="40" height="48" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+</svg>
