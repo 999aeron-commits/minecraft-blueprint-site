@@ -78,6 +78,7 @@ _stripe_initialized = False
 _loaded_env_files: list[str] = []
 _env_files_scanned = False
 DEFAULT_OPENAI_MODEL = 'gpt-5-mini'
+STATIC_ASSET_VERSION_PLACEHOLDER = '__STATIC_ASSET_VERSION__'
 CHAT_API_PATH = '/api/chat'
 CHECKOUT_SESSION_API_PATH = '/api/create-checkout-session'
 CHECKOUT_SESSION_STATUS_API_PATH = '/api/checkout-session-status'
@@ -160,6 +161,28 @@ def get_error_message(error: Exception) -> str:
         return message
 
     return f'{error.__class__.__name__} raised without an error message.'
+
+
+def iter_static_version_source_files():
+    for relative_path in ('index.html', 'app.js', 'styles.css'):
+        path = PROJECT_ROOT / relative_path
+        if path.is_file():
+            yield path
+
+    assets_dir = PROJECT_ROOT / 'assets'
+    if assets_dir.is_dir():
+        yield from (path for path in assets_dir.rglob('*') if path.is_file())
+
+
+def get_static_asset_version() -> str:
+    latest_mtime_ns = 0
+    for path in iter_static_version_source_files():
+        latest_mtime_ns = max(latest_mtime_ns, path.stat().st_mtime_ns)
+
+    if latest_mtime_ns <= 0:
+        latest_mtime_ns = PROJECT_ROOT.stat().st_mtime_ns
+
+    return str(latest_mtime_ns)
 
 
 def _parse_env_value(raw_value: str) -> str:
@@ -841,6 +864,14 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed_url = urlparse(self.path)
+        if parsed_url.path in {'/', '/index.html'}:
+            self._send_text_template(PROJECT_ROOT / 'index.html', 'text/html; charset=utf-8')
+            return
+
+        if parsed_url.path == '/styles.css':
+            self._send_text_template(PROJECT_ROOT / 'styles.css', 'text/css; charset=utf-8')
+            return
+
         checkout_status_paths = {CHECKOUT_SESSION_STATUS_API_PATH, *LEGACY_CHECKOUT_SESSION_STATUS_PATHS}
         if parsed_url.path not in checkout_status_paths:
             super().do_GET()
@@ -902,6 +933,18 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
         response = json.dumps(payload).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+
+    def _send_text_template(self, file_path: Path, content_type: str) -> None:
+        rendered_text = file_path.read_text(encoding='utf-8').replace(
+            STATIC_ASSET_VERSION_PLACEHOLDER,
+            get_static_asset_version()
+        )
+        response = rendered_text.encode('utf-8')
+        self.send_response(HTTPStatus.OK)
+        self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(response)))
         self.end_headers()
         self.wfile.write(response)

@@ -19,7 +19,7 @@ body {
     --shadow: 0 18px 38px rgba(62, 46, 36, 0.12);
     /* Keep the pixel-art background subtle so it decorates the page without competing with the UI. */
     background:
-        url("assets/minecraft-pattern-v2.svg") 0 0 / 240px 240px repeat,
+        url("assets/minecraft-pattern-v2.svg?v=__STATIC_ASSET_VERSION__") 0 0 / 240px 240px repeat,
         radial-gradient(circle at top, rgba(186, 43, 43, 0.06), transparent 34%),
         linear-gradient(180deg, #F6F1E8 0%, #F3EDE3 100%);
     color: var(--text);
