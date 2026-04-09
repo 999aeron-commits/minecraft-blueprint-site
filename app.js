@@ -56,9 +56,21 @@ const upgradeModalStatus = document.getElementById('upgradeModalStatus');
 const accountSummaryText = document.getElementById('accountSummaryText');
 const accountSignedOutActions = document.getElementById('accountSignedOutActions');
 const accountSignedInActions = document.getElementById('accountSignedInActions');
+const accountProfileCorner = document.getElementById('accountProfileCorner');
+const accountProfileActions = document.getElementById('accountProfileActions');
+const accountStatusCard = document.getElementById('accountStatusCard');
+const accountStatusLabel = document.getElementById('accountStatusLabel');
+const accountStatusEmail = document.getElementById('accountStatusEmail');
+const accountStatusPremiumBadge = document.getElementById('accountStatusPremiumBadge');
+const accountStatusPremiumIcon = document.getElementById('accountStatusPremiumIcon');
+const accountStatusPremiumText = document.getElementById('accountStatusPremiumText');
 const openCreateAccountBtn = document.getElementById('openCreateAccountBtn');
 const openLoginBtn = document.getElementById('openLoginBtn');
 const openAccountBtn = document.getElementById('openAccountBtn');
+const changeProfileImageBtn = document.getElementById('changeProfileImageBtn');
+const accountProfileBubbleFallback = document.getElementById('accountProfileBubbleFallback');
+const accountProfileBubbleImage = document.getElementById('accountProfileBubbleImage');
+const accountProfileBubbleStatus = document.getElementById('accountProfileBubbleStatus');
 const logoutBtn = document.getElementById('logoutBtn');
 const authModal = document.getElementById('authModal');
 const authModalCloseBtn = document.getElementById('authModalCloseBtn');
@@ -69,9 +81,12 @@ const authTabButtons = Array.from(document.querySelectorAll('.auth-modal-tab[dat
 const authPanels = Array.from(document.querySelectorAll('.auth-panel[data-auth-view]'));
 const authFooterForgotBtn = document.getElementById('authFooterForgotBtn');
 const authFooterBackBtn = document.getElementById('authFooterBackBtn');
+const authAccountCard = document.getElementById('authAccountCard');
 const authAccountSummary = document.getElementById('authAccountSummary');
 const authAccountEmailValue = document.getElementById('authAccountEmailValue');
 const authAccountStatusValue = document.getElementById('authAccountStatusValue');
+const authProfilePickerBtn = document.getElementById('authProfilePickerBtn');
+const profileImageInput = document.getElementById('profileImageInput');
 const openResetPasswordFromAccountBtn = document.getElementById('openResetPasswordFromAccountBtn');
 const registerForm = document.getElementById('registerForm');
 const registerEmail = document.getElementById('registerEmail');
@@ -112,6 +127,8 @@ const EDGE_ENHANCEMENT_STRENGTH = 0.18;
 const EDGE_ENHANCEMENT_THRESHOLD = 12;
 const SUBSCRIPTION_ACTIVE_STORAGE_KEY = 'photosynthesizer_subscription_active';
 const LIFETIME_UNLOCK_STORAGE_KEY = 'photosynthesizer_lifetime_unlock';
+const FILE_MODE_SESSION_TOKEN_STORAGE_KEY = 'photosynthesizer_file_mode_session_token';
+const API_SESSION_HEADER_NAME = 'X-Blueprint-Session';
 const PREMIUM_SIZE_LONG_SIDE_THRESHOLD = 128;
 const AUTH_EMAIL_ERROR_MESSAGE = 'Invalid email.';
 const AUTH_PASSWORD_REQUIRED_MESSAGE = 'Enter your password.';
@@ -119,7 +136,13 @@ const AUTH_PASSWORD_TOO_SHORT_MESSAGE = 'Password too short.';
 const AUTH_PASSWORD_NUMBER_MESSAGE = 'Password must include a number.';
 const AUTH_PASSWORD_MISMATCH_MESSAGE = 'Passwords do not match.';
 const AUTH_RESET_INVALID_MESSAGE = 'Reset link is invalid or expired.';
+const PROFILE_IMAGE_REQUIRED_MESSAGE = 'Choose an image first.';
+const PROFILE_IMAGE_FILE_MESSAGE = 'Choose a valid image file.';
+const PROFILE_IMAGE_SIZE_MESSAGE = 'Choose an image smaller than 6 MB.';
+const PROFILE_IMAGE_UPLOAD_ERROR_MESSAGE = 'Unable to update the profile picture right now.';
 const APP_API_ORIGIN_PLACEHOLDER = '__APP_API_ORIGIN__';
+const PROFILE_AVATAR_PIXEL_SIZE = 20;
+const PROFILE_IMAGE_INPUT_MAX_BYTES = 6 * 1024 * 1024;
 
 ctx.imageSmoothingEnabled = false;
 
@@ -490,7 +513,7 @@ function getAuthViewConfig(view) {
         case 'account':
             return {
                 title: 'Your Account',
-                copy: 'Manage your sign-in and password reset options.'
+                copy: 'Manage your pixel portrait, account status, and password reset options.'
             };
         case 'register':
             return {
@@ -596,6 +619,9 @@ function setForgotResetPreview(url = '') {
 
 function clearAuthViewFeedback(view) {
     switch (view) {
+        case 'account':
+            clearAuthFormMessage('account');
+            break;
         case 'register':
             clearAuthFieldError('registerEmail');
             clearAuthFieldError('registerPassword');
@@ -622,7 +648,7 @@ function clearAuthViewFeedback(view) {
 }
 
 function clearAllAuthFeedback() {
-    ['register', 'login', 'forgot', 'reset'].forEach((view) => clearAuthViewFeedback(view));
+    ['account', 'register', 'login', 'forgot', 'reset'].forEach((view) => clearAuthViewFeedback(view));
 }
 
 function updateAuthModalFooter(view) {
@@ -649,7 +675,7 @@ function setAuthModalOpen(isOpen) {
 
 function focusAuthViewField(view) {
     const focusTargetByView = {
-        account: openResetPasswordFromAccountBtn,
+        account: authProfilePickerBtn || openResetPasswordFromAccountBtn,
         register: registerEmail,
         login: loginEmail,
         forgot: forgotPasswordEmail,
@@ -731,9 +757,231 @@ function getPremiumBadgeDetails() {
     };
 }
 
+function isFileModeSessionEnabled() {
+    return window.location.protocol === 'file:';
+}
+
+function getStoredFileModeSessionToken() {
+    if (!isFileModeSessionEnabled()) {
+        return '';
+    }
+
+    return String(localStorage.getItem(FILE_MODE_SESSION_TOKEN_STORAGE_KEY) || '').trim();
+}
+
+function storeFileModeSessionToken(sessionToken = '') {
+    if (!isFileModeSessionEnabled()) {
+        return;
+    }
+
+    const normalizedToken = String(sessionToken || '').trim();
+    if (normalizedToken) {
+        localStorage.setItem(FILE_MODE_SESSION_TOKEN_STORAGE_KEY, normalizedToken);
+        return;
+    }
+
+    localStorage.removeItem(FILE_MODE_SESSION_TOKEN_STORAGE_KEY);
+}
+
+function syncFileModeSessionFromPayload(payload) {
+    if (!isFileModeSessionEnabled() || !payload || typeof payload !== 'object') {
+        return;
+    }
+
+    if (payload.session_transport !== 'header') {
+        return;
+    }
+
+    storeFileModeSessionToken(payload.session_token);
+}
+
+function buildApiRequestHeaders(headers = {}) {
+    const nextHeaders = {
+        'Accept': 'application/json',
+        ...headers
+    };
+    const sessionToken = getStoredFileModeSessionToken();
+    if (sessionToken && !Object.keys(nextHeaders).some((name) => name.toLowerCase() === API_SESSION_HEADER_NAME.toLowerCase())) {
+        nextHeaders[API_SESSION_HEADER_NAME] = sessionToken;
+    }
+    return nextHeaders;
+}
+
+function buildApiRequestOptions(options = {}) {
+    return {
+        credentials: 'include',
+        ...options,
+        headers: buildApiRequestHeaders(options.headers || {})
+    };
+}
+
+function buildProfileImageRenderSource(imageUrl, imageVersion = '') {
+    const normalizedImageUrl = typeof imageUrl === 'string' ? imageUrl.trim() : '';
+    if (!normalizedImageUrl) {
+        return '';
+    }
+
+    // Keep account-stored data URLs exact so the browser renders the real image
+    // payload instead of a mutated cache-busting variant.
+    if (normalizedImageUrl.startsWith('data:')) {
+        return normalizedImageUrl;
+    }
+
+    const normalizedVersion = typeof imageVersion === 'string' ? imageVersion.trim() : '';
+    if (!normalizedVersion) {
+        return normalizedImageUrl;
+    }
+
+    return normalizedImageUrl.startsWith('data:')
+        ? `${normalizedImageUrl}#${encodeURIComponent(normalizedVersion)}`
+        : `${normalizedImageUrl}${normalizedImageUrl.includes('?') ? '&' : '?'}v=${encodeURIComponent(normalizedVersion)}`;
+}
+
+function ensureAvatarImageHandlers(imageElement, fallbackElement) {
+    if (!(imageElement instanceof HTMLImageElement) || imageElement.dataset.avatarHandlersBound === 'true') {
+        return;
+    }
+
+    imageElement.addEventListener('load', () => {
+        imageElement.hidden = false;
+        if (fallbackElement instanceof HTMLElement) {
+            fallbackElement.hidden = true;
+        }
+        if (imageElement === accountProfileBubbleImage) {
+            setProfileBubbleAvatarState(true);
+        }
+    });
+
+    imageElement.addEventListener('error', () => {
+        imageElement.hidden = true;
+        imageElement.removeAttribute('src');
+        delete imageElement.dataset.renderSource;
+        if (fallbackElement instanceof HTMLElement) {
+            fallbackElement.hidden = false;
+        }
+        if (imageElement === accountProfileBubbleImage) {
+            setProfileBubbleAvatarState(false);
+        }
+    });
+
+    imageElement.dataset.avatarHandlersBound = 'true';
+}
+
+function setProfileBubbleAvatarState(hasImage) {
+    if (openAccountBtn) {
+        openAccountBtn.dataset.avatarState = hasImage ? 'image' : 'empty';
+    }
+
+    if (accountProfileBubbleStatus) {
+        accountProfileBubbleStatus.hidden = !hasImage;
+    }
+}
+
+function updateAvatarElements(imageElement, fallbackElement, imageUrl, imageVersion = '') {
+    if (imageElement instanceof HTMLImageElement) {
+        ensureAvatarImageHandlers(imageElement, fallbackElement);
+        const nextSource = buildProfileImageRenderSource(imageUrl, imageVersion);
+        if (nextSource) {
+            const isSameSource = imageElement.dataset.renderSource === nextSource;
+            if (isSameSource && imageElement.complete && imageElement.naturalWidth > 0) {
+                imageElement.hidden = false;
+                if (fallbackElement instanceof HTMLElement) {
+                    fallbackElement.hidden = true;
+                }
+            } else {
+                imageElement.hidden = true;
+                if (fallbackElement instanceof HTMLElement) {
+                    fallbackElement.hidden = false;
+                }
+            }
+            if (!isSameSource) {
+                imageElement.removeAttribute('src');
+            }
+            imageElement.dataset.renderSource = nextSource;
+            if (!isSameSource || imageElement.currentSrc !== nextSource) {
+                imageElement.src = nextSource;
+            }
+        } else {
+            imageElement.hidden = true;
+            delete imageElement.dataset.renderSource;
+            imageElement.removeAttribute('src');
+            if (fallbackElement instanceof HTMLElement) {
+                fallbackElement.hidden = false;
+            }
+        }
+    }
+}
+
+function updateProfileBubbleUi(premiumDetails) {
+    if (!openAccountBtn) {
+        return;
+    }
+
+    if (!accountState.isAuthenticated || !accountState.user) {
+        openAccountBtn.removeAttribute('title');
+        openAccountBtn.setAttribute('aria-label', 'Open account options');
+        openAccountBtn.classList.remove('is-premium');
+        updateAvatarElements(accountProfileBubbleImage, accountProfileBubbleFallback, '');
+        setProfileBubbleAvatarState(false);
+        if (accountProfileBubbleStatus) {
+            accountProfileBubbleStatus.dataset.state = 'standard';
+        }
+        return;
+    }
+
+    const imageUrl = typeof accountState.user.profile_image_url === 'string'
+        ? accountState.user.profile_image_url
+        : '';
+    const imageVersion = typeof accountState.user.profile_image_version === 'string'
+        ? accountState.user.profile_image_version
+        : '';
+    const titleText = premiumDetails.isActive
+        ? `${accountState.user.email} • ${premiumDetails.text}`
+        : `${accountState.user.email} • Premium inactive`;
+    const hasProfileImage = !!buildProfileImageRenderSource(imageUrl, imageVersion);
+
+    updateAvatarElements(accountProfileBubbleImage, accountProfileBubbleFallback, imageUrl, imageVersion);
+    setProfileBubbleAvatarState(hasProfileImage);
+    openAccountBtn.title = titleText;
+    openAccountBtn.setAttribute('aria-label', `Open account options for ${accountState.user.email}`);
+    openAccountBtn.classList.toggle('is-premium', premiumDetails.isActive);
+    if (accountProfileBubbleStatus) {
+        accountProfileBubbleStatus.dataset.state = premiumDetails.isActive ? 'premium' : 'standard';
+    }
+}
+
+function updateAccountStatusCard(premiumDetails) {
+    const isSignedIn = !!(accountState.isAuthenticated && accountState.user);
+    const isPremiumActive = !!premiumDetails?.isActive;
+    const premiumBadgeState = isPremiumActive ? 'active' : 'inactive';
+    const premiumText = isPremiumActive ? 'Active' : 'Inactive';
+    const premiumIcon = isPremiumActive ? '✓' : 'X';
+
+    if (accountStatusLabel) {
+        accountStatusLabel.textContent = isSignedIn ? 'Signed In' : 'Account';
+    }
+    if (accountStatusCard) {
+        accountStatusCard.dataset.state = isSignedIn ? 'member' : 'guest';
+    }
+    if (accountStatusEmail) {
+        accountStatusEmail.textContent = accountState.user?.email || 'Not signed in';
+        accountStatusEmail.title = accountState.user?.email || '';
+    }
+    if (accountStatusPremiumBadge) {
+        accountStatusPremiumBadge.dataset.state = premiumBadgeState;
+    }
+    if (accountStatusPremiumIcon) {
+        accountStatusPremiumIcon.textContent = premiumIcon;
+    }
+    if (accountStatusPremiumText) {
+        accountStatusPremiumText.textContent = premiumText;
+    }
+}
+
 function updateAccountUi() {
     const premiumDetails = getPremiumBadgeDetails();
     const premiumStatusText = premiumDetails.isActive ? premiumDetails.text : 'Premium inactive';
+    document.body.classList.toggle('account-authenticated', accountState.isAuthenticated);
 
     if (accountState.isAuthenticated && accountState.user) {
         if (accountSummaryText) {
@@ -753,6 +1001,12 @@ function updateAccountUi() {
         }
         if (accountSignedInActions) {
             accountSignedInActions.hidden = false;
+        }
+        if (accountProfileCorner) {
+            accountProfileCorner.hidden = false;
+        }
+        if (accountProfileActions) {
+            accountProfileActions.hidden = false;
         }
     } else {
         if (accountSummaryText) {
@@ -775,11 +1029,19 @@ function updateAccountUi() {
         if (accountSignedInActions) {
             accountSignedInActions.hidden = true;
         }
+        if (accountProfileCorner) {
+            accountProfileCorner.hidden = false;
+        }
+        if (accountProfileActions) {
+            accountProfileActions.hidden = true;
+        }
         if (accountState.activeView === 'account') {
             accountState.activeView = 'login';
         }
     }
 
+    updateProfileBubbleUi(premiumDetails);
+    updateAccountStatusCard(premiumDetails);
     if (currentImageSource) {
         updateBlueprintSizeOptions(currentImageOriginalWidth, currentImageOriginalHeight, sizeSelector.value);
     }
@@ -903,35 +1165,112 @@ function setResetPasswordError(message) {
 }
 
 async function requestApiJson(url, options = {}) {
-    const requestOptions = {
-        credentials: 'include',
-        ...options
-    };
-
-    requestOptions.headers = {
-        'Accept': 'application/json',
-        ...(options.headers || {})
-    };
-
-    const response = await fetch(url, requestOptions);
+    const response = await fetch(url, buildApiRequestOptions(options));
     const { payload, rawText } = await parseJsonResponse(response);
+    syncFileModeSessionFromPayload(payload);
     if (!response.ok) {
-        throw new Error(payload?.error || rawText || 'Request failed.');
+        if (response.status === 401) {
+            storeFileModeSessionToken('');
+        }
+        const error = new Error(payload?.error || rawText || 'Request failed.');
+        error.status = response.status;
+        throw error;
     }
 
     return payload;
 }
 
+function loadImageFromFile(file) {
+    return new Promise((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(file);
+        const image = new Image();
+        image.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(image);
+        };
+        image.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error(PROFILE_IMAGE_FILE_MESSAGE));
+        };
+        image.src = objectUrl;
+    });
+}
+
+async function createPixelatedProfileImageDataUrl(file) {
+    if (!(file instanceof File) || !file.type.startsWith('image/')) {
+        throw new Error(PROFILE_IMAGE_FILE_MESSAGE);
+    }
+    if (file.size > PROFILE_IMAGE_INPUT_MAX_BYTES) {
+        throw new Error(PROFILE_IMAGE_SIZE_MESSAGE);
+    }
+
+    const image = await loadImageFromFile(file);
+    const sourceWidth = Math.max(1, image.naturalWidth || image.width || 1);
+    const sourceHeight = Math.max(1, image.naturalHeight || image.height || 1);
+    const cropSize = Math.max(1, Math.min(sourceWidth, sourceHeight));
+    const sourceX = Math.max(0, Math.floor((sourceWidth - cropSize) / 2));
+    const sourceY = Math.max(0, Math.floor((sourceHeight - cropSize) / 2));
+    const pixelCanvas = document.createElement('canvas');
+    pixelCanvas.width = PROFILE_AVATAR_PIXEL_SIZE;
+    pixelCanvas.height = PROFILE_AVATAR_PIXEL_SIZE;
+    const pixelContext = pixelCanvas.getContext('2d');
+    if (!pixelContext) {
+        throw new Error(PROFILE_IMAGE_UPLOAD_ERROR_MESSAGE);
+    }
+
+    pixelContext.imageSmoothingEnabled = false;
+    pixelContext.clearRect(0, 0, PROFILE_AVATAR_PIXEL_SIZE, PROFILE_AVATAR_PIXEL_SIZE);
+    pixelContext.drawImage(
+        image,
+        sourceX,
+        sourceY,
+        cropSize,
+        cropSize,
+        0,
+        0,
+        PROFILE_AVATAR_PIXEL_SIZE,
+        PROFILE_AVATAR_PIXEL_SIZE
+    );
+
+    return pixelCanvas.toDataURL('image/png');
+}
+
+async function uploadProfileImageDataUrl(imageDataUrl) {
+    const payload = await requestApiJson(getAuthApiUrl('/api/auth/profile-image'), {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            image_data_url: imageDataUrl
+        })
+    });
+    return payload?.user || null;
+}
+
+function setProfileImageControlsPending(isPending) {
+    [changeProfileImageBtn, authProfilePickerBtn, profileImageInput].forEach((element) => {
+        if (element instanceof HTMLElement) {
+            element.disabled = isPending;
+        }
+    });
+}
+
 async function refreshAuthenticatedUser(options = {}) {
     try {
         const payload = await requestApiJson(getAuthApiUrl('/api/auth/me'));
+        if (!payload?.authenticated) {
+            storeFileModeSessionToken('');
+        }
         setAuthenticatedUser(payload?.authenticated ? payload.user || null : null);
         return payload?.user || null;
     } catch (error) {
         if (!options.quiet) {
             console.error('[auth] Failed to load current session.', error);
         }
-        setAuthenticatedUser(null);
+        if (!options.preserveOnError) {
+            setAuthenticatedUser(null);
+        }
         return null;
     }
 }
@@ -1152,6 +1491,54 @@ async function submitResetPasswordForm(event) {
     }
 }
 
+async function handleProfileImageSelection(file) {
+    clearAuthViewFeedback('account');
+    if (!file) {
+        return;
+    }
+
+    const previousUser = accountState.user ? { ...accountState.user } : null;
+    setProfileImageControlsPending(true);
+    try {
+        const previewImageDataUrl = await createPixelatedProfileImageDataUrl(file);
+        const previewImageVersion = String(Date.now());
+        if (previousUser) {
+            setAuthenticatedUser({
+                ...previousUser,
+                profile_image_url: previewImageDataUrl,
+                profile_image_version: previewImageVersion
+            });
+        }
+
+        const updatedUser = await uploadProfileImageDataUrl(previewImageDataUrl);
+        setAuthenticatedUser(updatedUser || (previousUser
+            ? {
+                ...previousUser,
+                profile_image_url: previewImageDataUrl,
+                profile_image_version: previewImageVersion
+            }
+            : null));
+        const refreshedUser = await refreshAuthenticatedUser({ quiet: true, preserveOnError: true });
+        if (refreshedUser) {
+            setAuthenticatedUser(refreshedUser);
+        }
+        setAuthFormMessage('account', 'Profile picture updated.', 'success');
+    } catch (error) {
+        if (previousUser) {
+            setAuthenticatedUser(previousUser);
+        }
+        const message = error instanceof TypeError
+            ? PROFILE_IMAGE_UPLOAD_ERROR_MESSAGE
+            : (error.message || PROFILE_IMAGE_UPLOAD_ERROR_MESSAGE);
+        setAuthFormMessage('account', message);
+    } finally {
+        setProfileImageControlsPending(false);
+        if (profileImageInput) {
+            profileImageInput.value = '';
+        }
+    }
+}
+
 async function logoutCurrentAccount() {
     try {
         await requestApiJson(getAuthApiUrl('/api/auth/logout'), {
@@ -1163,6 +1550,7 @@ async function logoutCurrentAccount() {
     } catch (error) {
         console.error('[auth] Logout failed.', error);
     } finally {
+        storeFileModeSessionToken('');
         setAuthenticatedUser(null);
         setAuthModalOpen(false);
     }
@@ -1188,12 +1576,7 @@ async function verifyCheckoutReturn() {
         const fetchCheckoutStatusPayload = async () => {
             const requestUrl = getCheckoutStatusApiUrl(sessionId);
             console.info('[billing] Verifying checkout session.', { requestUrl, sessionId });
-            const response = await fetch(requestUrl, {
-                credentials: 'include',
-                headers: {
-                    'Accept': 'application/json'
-                }
-            });
+            const response = await fetch(requestUrl, buildApiRequestOptions());
             const { payload, rawText, contentType } = await parseJsonResponse(response);
             console.info('[billing] Checkout verification response received.', {
                 status: response.status,
@@ -1203,6 +1586,9 @@ async function verifyCheckoutReturn() {
                 rawText
             });
             if (!response.ok) {
+                if (response.status === 401) {
+                    storeFileModeSessionToken('');
+                }
                 throw new Error(payload?.error || rawText || 'Unable to verify the checkout session.');
             }
             return payload;
@@ -1272,15 +1658,13 @@ async function startCheckout(purchaseType) {
             purchaseType,
             requestPayload
         });
-        const response = await fetch(requestUrl, {
+        const response = await fetch(requestUrl, buildApiRequestOptions({
             method: 'POST',
-            credentials: 'include',
             headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(requestPayload)
-        });
+        }));
         const { payload, rawText, contentType } = await parseJsonResponse(response);
         console.info('[billing] Checkout session response received.', {
             status: response.status,
@@ -1290,6 +1674,9 @@ async function startCheckout(purchaseType) {
             rawText
         });
         if (!response.ok) {
+            if (response.status === 401) {
+                storeFileModeSessionToken('');
+            }
             throw new Error(payload?.error || rawText || 'Unable to start checkout right now.');
         }
         if (!payload?.checkout_url || typeof payload.checkout_url !== 'string') {
@@ -4055,6 +4442,30 @@ if (openResetPasswordFromAccountBtn) {
             forgotPasswordEmail.value = accountState.user.email;
         }
         setAuthModalView('forgot');
+    });
+}
+
+if (profileImageInput) {
+    const openProfileImagePicker = () => {
+        clearAuthViewFeedback('account');
+        profileImageInput.value = '';
+        profileImageInput.click();
+    };
+
+    if (authProfilePickerBtn) {
+        authProfilePickerBtn.addEventListener('click', openProfileImagePicker);
+    }
+
+    if (changeProfileImageBtn) {
+        changeProfileImageBtn.addEventListener('click', openProfileImagePicker);
+    }
+
+    profileImageInput.addEventListener('change', () => {
+        const selectedFile = profileImageInput.files?.[0];
+        if (!selectedFile) {
+            return;
+        }
+        void handleProfileImageSelection(selectedFile);
     });
 }
 

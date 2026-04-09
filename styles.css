@@ -45,6 +45,323 @@ header {
     text-align: center;
 }
 
+body.account-authenticated header {
+    padding-top: 0;
+}
+
+body.account-authenticated .account-bar {
+    display: none;
+}
+
+.account-profile-corner {
+    --account-avatar-size: 74px;
+    align-items: end;
+    display: grid;
+    gap: 2px;
+    justify-items: end;
+    position: fixed;
+    right: 20px;
+    top: 20px;
+    z-index: 14;
+}
+
+.account-profile-topline {
+    align-items: flex-start;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.account-profile-stack {
+    display: grid;
+    gap: 4px;
+    justify-items: center;
+    width: var(--account-avatar-size);
+}
+
+.account-profile-actions {
+    display: grid;
+    gap: 4px;
+    justify-items: center;
+    width: 100%;
+}
+
+.account-status-card {
+    background:
+        linear-gradient(180deg, rgba(230, 215, 184, 0.96), rgba(193, 162, 129, 0.88));
+    border: 1px solid rgba(92, 68, 51, 0.22);
+    border-radius: 20px;
+    box-shadow:
+        0 12px 24px rgba(62, 46, 36, 0.1),
+        inset 0 1px 0 rgba(255, 248, 235, 0.28);
+    display: grid;
+    gap: 5px;
+    min-height: 72px;
+    min-width: 172px;
+    max-width: 196px;
+    padding: 10px 12px 11px;
+    text-align: left;
+}
+
+.account-status-label {
+    color: rgba(90, 70, 56, 0.82);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    margin: 0;
+    text-transform: uppercase;
+}
+
+.account-status-email {
+    color: var(--text);
+    font-size: 0.8rem;
+    font-weight: 700;
+    line-height: 1.3;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.account-status-card[data-state="guest"] .account-status-email {
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.account-status-premium-row {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+}
+
+.account-status-premium-label {
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.account-status-premium-badge {
+    align-items: center;
+    background: rgba(62, 46, 36, 0.08);
+    border: 1px solid rgba(92, 68, 51, 0.14);
+    border-radius: 999px;
+    color: var(--text);
+    display: inline-flex;
+    gap: 5px;
+    min-height: 23px;
+    padding: 3px 8px 3px 6px;
+}
+
+.account-status-premium-badge[data-state="active"] {
+    background: rgba(93, 133, 67, 0.12);
+    border-color: rgba(93, 133, 67, 0.26);
+}
+
+.account-status-premium-badge[data-state="inactive"] {
+    background: rgba(201, 42, 42, 0.08);
+    border-color: rgba(201, 42, 42, 0.2);
+}
+
+.account-status-premium-icon {
+    align-items: center;
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: 0.72rem;
+    font-weight: 800;
+    height: 14px;
+    justify-content: center;
+    line-height: 1;
+    width: 14px;
+}
+
+.account-status-premium-badge[data-state="active"] .account-status-premium-icon {
+    background: rgba(93, 133, 67, 0.18);
+    color: #4C7A33;
+}
+
+.account-status-premium-badge[data-state="inactive"] .account-status-premium-icon {
+    background: rgba(201, 42, 42, 0.14);
+    color: var(--accent);
+}
+
+.account-status-premium-text {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    line-height: 1;
+}
+
+.account-bar {
+    align-items: center;
+    background: rgba(243, 237, 227, 0.94);
+    border: 1px solid rgba(92, 68, 51, 0.18);
+    border-radius: 18px;
+    box-shadow: 0 14px 26px rgba(92, 68, 51, 0.06);
+    display: grid;
+    gap: 14px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    margin: 18px auto 0;
+    max-width: 920px;
+    padding: 16px 18px;
+    text-align: left;
+    width: min(100%, 920px);
+}
+
+.account-bar-copy {
+    min-width: 0;
+}
+
+.account-bar-eyebrow {
+    color: var(--accent);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    margin: 0 0 6px;
+    text-transform: uppercase;
+}
+
+.account-summary-text {
+    color: var(--text);
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.account-bar-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.account-profile-bubble {
+    align-items: center;
+    background:
+        linear-gradient(180deg, rgba(184, 154, 123, 0.78), rgba(122, 91, 69, 0.68));
+    border: 1px solid rgba(92, 68, 51, 0.28);
+    border-radius: 999px;
+    box-shadow:
+        0 12px 24px rgba(62, 46, 36, 0.1),
+        inset 0 1px 0 rgba(243, 237, 227, 0.24);
+    display: inline-flex;
+    flex: 0 0 auto;
+    justify-content: center;
+    height: var(--account-avatar-size);
+    padding: 4px;
+    position: relative;
+    width: var(--account-avatar-size);
+}
+
+.account-profile-change {
+    background:
+        linear-gradient(180deg, rgba(215, 192, 159, 0.94), rgba(170, 134, 104, 0.9));
+    border: 1px solid rgba(92, 68, 51, 0.24);
+    border-radius: 999px;
+    box-shadow:
+        0 8px 14px rgba(62, 46, 36, 0.08),
+        inset 0 1px 0 rgba(255, 248, 235, 0.26);
+    color: var(--accent-strong);
+    font-size: 0.61rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.05;
+    margin-top: -1px;
+    min-height: 28px;
+    padding: 4px 7px 5px;
+    text-align: center;
+    text-transform: uppercase;
+    white-space: normal;
+    width: 100%;
+}
+
+.account-profile-change:hover {
+    background:
+        linear-gradient(180deg, rgba(227, 206, 175, 0.96), rgba(182, 144, 112, 0.94));
+    border-color: rgba(92, 68, 51, 0.32);
+    color: var(--text);
+}
+
+.account-profile-bubble::before,
+.account-profile-bubble::after {
+    display: none;
+}
+
+.account-profile-bubble:hover {
+    border-color: rgba(92, 68, 51, 0.28);
+    transform: translateY(-1px);
+}
+
+.account-profile-bubble.is-premium {
+    box-shadow:
+        0 12px 24px rgba(62, 46, 36, 0.12),
+        0 0 0 1px rgba(201, 42, 42, 0.16);
+}
+
+.account-profile-avatar {
+    align-items: center;
+    background:
+        linear-gradient(180deg, rgba(230, 215, 184, 0.52), rgba(216, 198, 163, 0.74));
+    border: 1px solid rgba(92, 68, 51, 0.22);
+    border-radius: 999px;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 248, 235, 0.58);
+    display: inline-flex;
+    flex: 0 0 auto;
+    height: 100%;
+    justify-content: center;
+    overflow: hidden;
+    width: 100%;
+}
+
+.account-profile-bubble[data-avatar-state="empty"] .account-profile-avatar {
+    background: rgba(232, 219, 193, 0.9);
+    box-shadow: none;
+}
+
+.account-profile-fallback {
+    color: rgba(90, 70, 56, 0.92);
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1;
+    text-shadow: 0 1px 0 rgba(255, 248, 235, 0.3);
+    transform: translateY(-1px);
+    user-select: none;
+}
+
+.account-profile-image {
+    display: block;
+    height: 100%;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    object-fit: cover;
+    width: 100%;
+}
+
+.account-profile-bubble[data-avatar-state="empty"] .account-profile-image {
+    display: none;
+}
+
+.account-profile-status-dot {
+    background: rgba(122, 91, 69, 0.92);
+    border: 2px solid rgba(243, 237, 227, 0.96);
+    border-radius: 999px;
+    bottom: 4px;
+    box-shadow: 0 0 0 1px rgba(62, 46, 36, 0.34);
+    height: 10px;
+    position: absolute;
+    right: 4px;
+    width: 10px;
+}
+
+.account-profile-bubble[data-avatar-state="empty"] .account-profile-status-dot {
+    display: none;
+}
+
+.account-profile-status-dot[data-state="premium"] {
+    background: var(--accent);
+}
+
 main {
     display: grid;
     gap: 28px;
@@ -322,6 +639,8 @@ label {
 
 select,
 input[type="text"],
+input[type="email"],
+input[type="password"],
 input[type="file"],
 button {
     background: var(--panel-strong);
@@ -333,6 +652,8 @@ button {
 
 select,
 input[type="text"],
+input[type="email"],
+input[type="password"],
 input[type="file"] {
     padding: 10px 12px;
 }
@@ -1384,7 +1705,8 @@ body.workspace-active .chat-widget {
     display: none !important;
 }
 
-body.upgrade-modal-open {
+body.upgrade-modal-open,
+body.auth-modal-open {
     overflow: hidden;
 }
 
@@ -1517,7 +1839,236 @@ body.upgrade-modal-open {
     padding: 12px 14px;
 }
 
+.auth-modal[hidden] {
+    display: none !important;
+}
+
+.auth-modal {
+    inset: 0;
+    position: fixed;
+    z-index: 1250;
+}
+
+.auth-modal-backdrop {
+    backdrop-filter: blur(4px);
+    background: rgba(62, 46, 36, 0.42);
+    inset: 0;
+    position: absolute;
+}
+
+.auth-modal-dialog {
+    background: rgba(243, 237, 227, 0.98);
+    border: 1px solid rgba(92, 68, 51, 0.2);
+    border-radius: 24px;
+    box-shadow: 0 28px 60px rgba(62, 46, 36, 0.22);
+    display: grid;
+    gap: 18px;
+    left: 50%;
+    max-width: min(520px, calc(100vw - 32px));
+    padding: 24px;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: calc(100vw - 32px);
+}
+
+.auth-modal-header {
+    align-items: start;
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+}
+
+.auth-modal-eyebrow {
+    color: var(--accent);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    margin: 0 0 6px;
+    text-transform: uppercase;
+}
+
+.auth-modal-header h2 {
+    font-size: clamp(1.7rem, 3vw, 2.1rem);
+    margin: 0 0 8px;
+}
+
+.auth-modal-copy {
+    color: var(--muted);
+    margin: 0;
+}
+
+.auth-modal-close {
+    border-radius: 12px;
+    flex: 0 0 auto;
+    font-size: 1.1rem;
+    min-height: 40px;
+    min-width: 40px;
+    padding: 0;
+}
+
+.auth-modal-tabs {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.auth-modal-tab {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    min-height: 40px;
+    text-align: center;
+}
+
+.auth-modal-tab.is-active {
+    background: rgba(201, 42, 42, 0.08);
+    border-color: rgba(201, 42, 42, 0.26);
+    color: var(--accent);
+}
+
+.auth-panel[hidden] {
+    display: none !important;
+}
+
+.auth-panel-card {
+    background: rgba(230, 215, 184, 0.42);
+    border: 1px solid rgba(92, 68, 51, 0.16);
+    border-radius: 18px;
+    box-shadow: inset 0 1px 0 rgba(255, 248, 235, 0.42);
+    padding: 18px;
+}
+
+.auth-form {
+    display: grid;
+    gap: 14px;
+}
+
+.auth-form-note {
+    color: var(--muted);
+    margin: -4px 0 0;
+}
+
+.auth-field-error,
+.auth-form-message {
+    border-radius: 12px;
+    margin: 0;
+    padding: 10px 12px;
+}
+
+.auth-field-error {
+    background: rgba(201, 42, 42, 0.08);
+    border: 1px solid rgba(201, 42, 42, 0.22);
+    color: var(--text);
+    font-size: 0.88rem;
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+.auth-form-message {
+    background: rgba(201, 42, 42, 0.1);
+    border: 1px solid rgba(201, 42, 42, 0.22);
+    color: var(--text);
+}
+
+.auth-form-message[data-state="success"] {
+    background: rgba(122, 91, 69, 0.12);
+    border-color: rgba(122, 91, 69, 0.22);
+}
+
+.auth-modal-footer {
+    display: flex;
+    justify-content: center;
+    min-height: 24px;
+}
+
+.auth-link-button {
+    background: transparent;
+    border: 0;
+    color: var(--accent);
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+    min-height: 0;
+    padding: 0;
+    text-decoration: underline;
+}
+
+.auth-link-button:hover {
+    background: transparent;
+    border-color: transparent;
+    color: var(--accent-strong);
+    transform: none;
+}
+
+.auth-reset-preview {
+    background: rgba(243, 237, 227, 0.7);
+    border: 1px dashed rgba(92, 68, 51, 0.22);
+    border-radius: 14px;
+    display: grid;
+    gap: 6px;
+    padding: 12px 14px;
+}
+
+.auth-reset-preview-label {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    margin: 0;
+    text-transform: uppercase;
+}
+
+.auth-reset-preview-link {
+    color: var(--accent);
+    overflow-wrap: anywhere;
+}
+
+.auth-account-card {
+    display: grid;
+    gap: 12px;
+}
+
+.auth-account-row {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+}
+
+.auth-account-label {
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.auth-account-value {
+    color: var(--text);
+    font-size: 0.98rem;
+    overflow-wrap: anywhere;
+    text-align: right;
+}
+
+.auth-account-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
 @media (max-width: 980px) {
+    body.account-authenticated header {
+        padding-right: 0;
+    }
+
+    .account-bar {
+        grid-template-columns: 1fr;
+        justify-items: start;
+    }
+
+    .account-bar-actions {
+        justify-content: flex-start;
+    }
+
     .setup-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -1554,12 +2105,85 @@ body.upgrade-modal-open {
         padding: 18px;
     }
 
+    body.account-authenticated header {
+        padding-top: 88px;
+    }
+
+    .account-profile-corner {
+        --account-avatar-size: 64px;
+        right: 12px;
+        top: 12px;
+    }
+
+    .account-profile-topline {
+        gap: 8px;
+    }
+
+    .account-profile-actions {
+        gap: 5px;
+    }
+
+    .account-status-card {
+        min-width: 148px;
+        max-width: min(168px, calc(100vw - 100px));
+        min-height: 64px;
+        padding: 9px 10px;
+    }
+
+    .account-status-email {
+        font-size: 0.72rem;
+    }
+
+    .account-status-premium-row {
+        gap: 8px;
+    }
+
+    .account-status-label,
+    .account-status-premium-label,
+    .account-status-premium-text {
+        font-size: 0.62rem;
+    }
+
+    .auth-modal-dialog,
     .upgrade-modal-dialog {
         padding: 20px;
     }
 
     .upgrade-modal-options {
         grid-template-columns: 1fr;
+    }
+
+    .auth-modal-tabs,
+    .account-bar-actions {
+        width: 100%;
+    }
+
+    .auth-modal-tab,
+    .account-bar-actions button {
+        flex: 1 1 0;
+    }
+
+    .account-profile-bubble {
+        flex: 0 0 auto;
+        height: var(--account-avatar-size);
+        width: var(--account-avatar-size);
+    }
+
+    .account-profile-change {
+        font-size: 0.57rem;
+        margin-top: -1px;
+        min-height: 25px;
+        padding: 4px 6px 5px;
+        width: var(--account-avatar-size);
+    }
+
+    .auth-account-row {
+        align-items: start;
+        flex-direction: column;
+    }
+
+    .auth-account-value {
+        text-align: left;
     }
 
     .chat-widget-panel {

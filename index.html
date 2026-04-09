@@ -8,6 +8,35 @@
     <link rel="stylesheet" href="styles.css?v=__STATIC_ASSET_VERSION__">
 </head>
 <body>
+    <div id="accountProfileCorner" class="account-profile-corner" hidden>
+        <div class="account-profile-topline">
+            <div id="accountStatusCard" class="account-status-card" data-state="guest" aria-live="polite">
+                <p id="accountStatusLabel" class="account-status-label">Account</p>
+                <p id="accountStatusEmail" class="account-status-email">Not signed in</p>
+                <div class="account-status-premium-row">
+                    <span class="account-status-premium-label">Premium</span>
+                    <span id="accountStatusPremiumBadge" class="account-status-premium-badge" data-state="inactive">
+                        <span id="accountStatusPremiumIcon" class="account-status-premium-icon" aria-hidden="true">X</span>
+                        <span id="accountStatusPremiumText" class="account-status-premium-text">Inactive</span>
+                    </span>
+                </div>
+            </div>
+            <div class="account-profile-stack">
+                <button id="openAccountBtn" class="account-profile-bubble" type="button" aria-label="Open account options" data-avatar-state="empty">
+                    <span class="account-profile-avatar">
+                        <span id="accountProfileBubbleFallback" class="account-profile-fallback" aria-hidden="true">?</span>
+                        <img id="accountProfileBubbleImage" class="account-profile-image" alt="" hidden>
+                    </span>
+                    <span id="accountProfileBubbleStatus" class="account-profile-status-dot" aria-hidden="true" hidden></span>
+                </button>
+                <div id="accountProfileActions" class="account-profile-actions" hidden>
+                    <button id="changeProfileImageBtn" class="account-profile-change" type="button">Change Portrait</button>
+                    <button id="logoutBtn" class="account-profile-change" type="button">Logout</button>
+                </div>
+            </div>
+        </div>
+        <input id="profileImageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+    </div>
     <div class="container">
         <header>
             <h1 class="site-title">The Photosynthesizer</h1>
@@ -22,10 +51,7 @@
                     <button id="openCreateAccountBtn" type="button">Create Account</button>
                     <button id="openLoginBtn" type="button">Login</button>
                 </div>
-                <div id="accountSignedInActions" class="account-bar-actions" hidden>
-                    <button id="openAccountBtn" type="button">Account</button>
-                    <button id="logoutBtn" type="button">Logout</button>
-                </div>
+                <div id="accountSignedInActions" class="account-bar-actions" hidden></div>
             </section>
         </header>
         <main>
@@ -313,7 +339,7 @@
             </div>
 
             <section class="auth-panel" data-auth-view="account" hidden>
-                <div class="auth-panel-card auth-account-card">
+                <div id="authAccountCard" class="auth-panel-card auth-account-card">
                     <div class="auth-account-row">
                         <span class="auth-account-label">Email</span>
                         <strong id="authAccountEmailValue" class="auth-account-value">--</strong>
@@ -322,8 +348,10 @@
                         <span class="auth-account-label">Premium</span>
                         <strong id="authAccountStatusValue" class="auth-account-value">Inactive</strong>
                     </div>
+                    <p id="accountFormMessage" class="auth-form-message" data-auth-form-message="account" hidden></p>
                     <p id="authAccountSummary" class="auth-form-note">Signed in.</p>
                     <div class="auth-account-actions">
+                        <button id="authProfilePickerBtn" type="button">Change Portrait</button>
                         <button id="openResetPasswordFromAccountBtn" type="button">Reset Password</button>
                     </div>
                 </div>
