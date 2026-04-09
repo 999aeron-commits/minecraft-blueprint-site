@@ -1218,6 +1218,24 @@ def read_stripe_email_from_metadata(value) -> str:
     return ''
 
 
+def resolve_checkout_purchase_type(checkout_session) -> str:
+    metadata = read_stripe_metadata(checkout_session)
+    purchase_type = str(metadata.get('purchase_type', '')).strip()
+    if purchase_type in SUPPORTED_CHECKOUT_PURCHASE_TYPES:
+        return purchase_type
+
+    mode = read_stripe_string(checkout_session, 'mode')
+    subscription_id = read_stripe_string(checkout_session, 'subscription')
+
+    if subscription_id or mode == 'subscription':
+        return 'monthly_subscription'
+
+    if mode == 'payment':
+        return 'lifetime_unlock'
+
+    return ''
+
+
 def mark_stripe_webhook_event_processed(
     connection: sqlite3.Connection,
     event_id: str,
@@ -1364,8 +1382,7 @@ def process_checkout_session_activation(
         log_billing_event(f'No user match found for completed checkout session {session_id}.')
         return
 
-    metadata = read_stripe_metadata(checkout_session)
-    purchase_type = str(metadata.get('purchase_type', '')).strip()
+    purchase_type = resolve_checkout_purchase_type(checkout_session)
     if purchase_type not in SUPPORTED_CHECKOUT_PURCHASE_TYPES:
         session_id = read_stripe_string(checkout_session, 'id')
         log_billing_event(f'Ignoring checkout session {session_id} with unsupported purchase type {purchase_type!r}.')
@@ -1445,10 +1462,11 @@ def handle_verified_stripe_webhook(raw_body: bytes, signature_header: str | None
 
     connection = get_database_connection()
     try:
-        if not mark_stripe_webhook_event_processed(connection, event_id, event_type):
-            connection.commit()
-            log_billing_event(f'Ignoring duplicate Stripe webhook event {event_id} ({event_type}).')
-            return {'received': True, 'duplicate': True}
+        is_duplicate = not mark_stripe_webhook_event_processed(connection, event_id, event_type)
+        if is_duplicate:
+            log_billing_event(
+                f'Reprocessing duplicate Stripe webhook event {event_id} ({event_type}) because handlers are idempotent.'
+            )
 
         if event_type in {'checkout.session.completed', 'checkout.session.async_payment_succeeded'}:
             process_checkout_session_activation(connection, event_object)
@@ -1463,7 +1481,7 @@ def handle_verified_stripe_webhook(raw_body: bytes, signature_header: str | None
         connection.close()
 
     log_billing_event(f'Processed Stripe webhook event {event_id} ({event_type}).')
-    return {'received': True, 'event_type': event_type}
+    return {'received': True, 'event_type': event_type, 'duplicate': is_duplicate}
 
 
 def apply_checkout_to_user_account(
@@ -1817,10 +1835,9 @@ def get_checkout_session_status(session_id: str) -> dict[str, object]:
     stripe_client = get_stripe_client()
     log_billing_event(f'Checking checkout session status. session_id={session_id}')
     session = stripe_client.checkout.Session.retrieve(session_id)
-    metadata = read_stripe_metadata(session)
     payment_status = read_stripe_string(session, 'payment_status')
     checkout_status = read_stripe_string(session, 'status')
-    purchase_type = str(metadata.get('purchase_type', '')).strip()
+    purchase_type = resolve_checkout_purchase_type(session)
     normalized_subscription_id = read_stripe_string(session, 'subscription')
     is_paid = payment_status == 'paid' or checkout_status == 'complete'
     response_payload: dict[str, object] = {
@@ -1831,6 +1848,7 @@ def get_checkout_session_status(session_id: str) -> dict[str, object]:
         'premium_activated': False
     }
 
+    metadata = read_stripe_metadata(session)
     raw_user_id = str(metadata.get('user_id', '')).strip()
     if raw_user_id.isdigit():
         connection = get_database_connection()
