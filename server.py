@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -100,6 +101,7 @@ AUTH_LOGIN_API_PATH = '/api/auth/login'
 AUTH_LOGOUT_API_PATH = '/api/auth/logout'
 AUTH_FORGOT_PASSWORD_API_PATH = '/api/auth/forgot-password'
 AUTH_RESET_PASSWORD_API_PATH = '/api/auth/reset-password'
+AUTH_PROFILE_IMAGE_API_PATH = '/api/auth/profile-image'
 LEGACY_CHECKOUT_SESSION_API_PATHS = {'/create-checkout-session'}
 LEGACY_CHECKOUT_SESSION_STATUS_PATHS = {'/checkout-session-status'}
 AUTH_API_PATHS = {
@@ -108,7 +110,8 @@ AUTH_API_PATHS = {
     AUTH_LOGIN_API_PATH,
     AUTH_LOGOUT_API_PATH,
     AUTH_FORGOT_PASSWORD_API_PATH,
-    AUTH_RESET_PASSWORD_API_PATH
+    AUTH_RESET_PASSWORD_API_PATH,
+    AUTH_PROFILE_IMAGE_API_PATH
 }
 CHECKOUT_CATALOG = {
     'monthly_subscription': {
@@ -153,12 +156,15 @@ API_CORS_PATHS = {
     *AUTH_API_PATHS
 }
 SESSION_COOKIE_NAME = 'blueprint_session'
+SESSION_HEADER_NAME = 'X-Blueprint-Session'
 SESSION_DURATION_DAYS = 30
 PASSWORD_RESET_TOKEN_TTL_MINUTES = 60
 PASSWORD_HASH_ITERATIONS = 310000
 DATABASE_PATH_ENV_VAR = 'APP_DB_PATH'
 PREMIUM_WHITELIST_ENV_VAR = 'PREMIUM_WHITELIST_EMAILS'
 STRIPE_WEBHOOK_SECRET_ENV_VAR = 'STRIPE_WEBHOOK_SECRET'
+PROFILE_IMAGE_MAX_BYTES = 128 * 1024
+PROFILE_IMAGE_DATA_URL_PREFIX = 'data:image/png;base64,'
 EMAIL_PATTERN = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 SUBSCRIPTION_ACTIVE_STATUSES = {'active', 'trialing'}
 
@@ -343,6 +349,7 @@ def initialize_database() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 password_hash TEXT NOT NULL,
+                profile_image_data_url TEXT,
                 lifetime_premium_unlocked_at TEXT,
                 stripe_customer_id TEXT,
                 stripe_subscription_id TEXT,
@@ -400,6 +407,7 @@ def initialize_database() -> None:
             CREATE INDEX IF NOT EXISTS idx_stripe_purchases_user_id ON stripe_purchases(user_id);
             '''
         )
+        ensure_table_column(connection, 'users', 'profile_image_data_url', 'TEXT')
         connection.commit()
     finally:
         connection.close()
@@ -414,6 +422,21 @@ def get_database_connection() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute('PRAGMA foreign_keys = ON')
     return connection
+
+
+def ensure_table_column(
+    connection: sqlite3.Connection,
+    table_name: str,
+    column_name: str,
+    column_definition: str
+) -> None:
+    existing_columns = {
+        str(row[1]).strip().lower()
+        for row in connection.execute(f'PRAGMA table_info({table_name})').fetchall()
+    }
+    if column_name.strip().lower() in existing_columns:
+        return
+    connection.execute(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}')
 
 
 def cleanup_expired_auth_records(connection: sqlite3.Connection) -> None:
@@ -432,6 +455,7 @@ def get_user_by_id(connection: sqlite3.Connection, user_id: int) -> sqlite3.Row 
             id,
             email,
             password_hash,
+            profile_image_data_url,
             lifetime_premium_unlocked_at,
             stripe_customer_id,
             stripe_subscription_id,
@@ -453,6 +477,7 @@ def get_user_by_email(connection: sqlite3.Connection, email: str) -> sqlite3.Row
             id,
             email,
             password_hash,
+            profile_image_data_url,
             lifetime_premium_unlocked_at,
             stripe_customer_id,
             stripe_subscription_id,
@@ -474,6 +499,7 @@ def get_user_by_stripe_customer_id(connection: sqlite3.Connection, customer_id: 
             id,
             email,
             password_hash,
+            profile_image_data_url,
             lifetime_premium_unlocked_at,
             stripe_customer_id,
             stripe_subscription_id,
@@ -495,6 +521,7 @@ def get_user_by_stripe_subscription_id(connection: sqlite3.Connection, subscript
             id,
             email,
             password_hash,
+            profile_image_data_url,
             lifetime_premium_unlocked_at,
             stripe_customer_id,
             stripe_subscription_id,
@@ -582,6 +609,41 @@ def get_session_token_from_cookie_header(cookie_header: str | None) -> str | Non
     return token or None
 
 
+def get_session_token_from_header(header_value: str | None) -> str | None:
+    if not isinstance(header_value, str):
+        return None
+
+    token = header_value.strip()
+    return token or None
+
+
+def get_session_token_from_request(handler: SimpleHTTPRequestHandler) -> str | None:
+    return (
+        get_session_token_from_cookie_header(handler.headers.get('Cookie'))
+        or get_session_token_from_header(handler.headers.get(SESSION_HEADER_NAME))
+    )
+
+
+def should_include_session_transport_payload(handler: SimpleHTTPRequestHandler) -> bool:
+    request_origin = handler.headers.get('Origin')
+    return isinstance(request_origin, str) and request_origin.strip().lower() == 'null'
+
+
+def build_session_transport_payload(
+    handler: SimpleHTTPRequestHandler,
+    session_token: str,
+    expires_at: str
+) -> dict[str, str]:
+    if not should_include_session_transport_payload(handler):
+        return {}
+
+    return {
+        'session_transport': 'header',
+        'session_token': session_token,
+        'session_expires_at': expires_at
+    }
+
+
 def get_authenticated_user_record(
     connection: sqlite3.Connection,
     handler: SimpleHTTPRequestHandler,
@@ -589,7 +651,7 @@ def get_authenticated_user_record(
     refresh_session: bool = False
 ) -> tuple[sqlite3.Row | None, str | None]:
     cleanup_expired_auth_records(connection)
-    session_token = get_session_token_from_cookie_header(handler.headers.get('Cookie'))
+    session_token = get_session_token_from_request(handler)
     if not session_token:
         return None, None
 
@@ -603,6 +665,7 @@ def get_authenticated_user_record(
             users.id AS id,
             users.email AS email,
             users.password_hash AS password_hash,
+            users.profile_image_data_url AS profile_image_data_url,
             users.lifetime_premium_unlocked_at AS lifetime_premium_unlocked_at,
             users.stripe_customer_id AS stripe_customer_id,
             users.stripe_subscription_id AS stripe_subscription_id,
@@ -702,12 +765,72 @@ def get_user_premium_state(user_row: sqlite3.Row) -> dict[str, object]:
 
 def build_public_user_payload(user_row: sqlite3.Row) -> dict[str, object]:
     premium_state = get_user_premium_state(user_row)
+    profile_image_url = str(user_row['profile_image_data_url'] or '').strip() or None
+    profile_image_version = hash_token(profile_image_url)[:16] if profile_image_url else None
     return {
         'email': user_row['email'],
+        'profile_image_url': profile_image_url,
+        'profile_image_version': profile_image_version,
         'has_premium_access': premium_state['has_premium_access'],
         'premium_source': premium_state['premium_source'],
         'subscription_status': premium_state['subscription_status']
     }
+
+
+def validate_profile_image_data_url(image_data_url: str) -> str:
+    normalized_data_url = str(image_data_url or '').strip()
+    if not normalized_data_url:
+        raise ApiError(HTTPStatus.BAD_REQUEST, 'Choose an image first.')
+    if not normalized_data_url.startswith(PROFILE_IMAGE_DATA_URL_PREFIX):
+        raise ApiError(HTTPStatus.BAD_REQUEST, 'Profile image must be a PNG.')
+
+    encoded_image = normalized_data_url[len(PROFILE_IMAGE_DATA_URL_PREFIX):]
+    try:
+        image_bytes = base64.b64decode(encoded_image, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise ApiError(HTTPStatus.BAD_REQUEST, 'Profile image is invalid.') from error
+
+    if len(image_bytes) > PROFILE_IMAGE_MAX_BYTES:
+        raise ApiError(HTTPStatus.BAD_REQUEST, 'Profile image is too large.')
+    if not image_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
+        raise ApiError(HTTPStatus.BAD_REQUEST, 'Profile image is invalid.')
+
+    return normalized_data_url
+
+
+def update_profile_image(
+    handler: SimpleHTTPRequestHandler,
+    image_data_url: str
+) -> sqlite3.Row:
+    validated_image_data_url = validate_profile_image_data_url(image_data_url)
+    connection = get_database_connection()
+    try:
+        user_row, _ = get_authenticated_user_record(connection, handler, refresh_session=True)
+        if user_row is None:
+            raise ApiError(HTTPStatus.UNAUTHORIZED, 'Log in before updating your profile picture.')
+
+        connection.execute(
+            '''
+            UPDATE users
+            SET profile_image_data_url = ?, updated_at = ?
+            WHERE id = ?
+            ''',
+            (
+                validated_image_data_url,
+                to_isoformat(utc_now()),
+                user_row['id']
+            )
+        )
+        connection.commit()
+        refreshed_user = get_user_by_id(connection, int(user_row['id']))
+        if refreshed_user is None:
+            raise RuntimeError('Unable to load the updated account.')
+        return refreshed_user
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def set_session_cookie(
@@ -1082,6 +1205,19 @@ def read_stripe_user_id_from_metadata(value) -> int | None:
     return None
 
 
+def read_stripe_email_from_metadata(value) -> str:
+    metadata = read_stripe_metadata(value)
+    for field_name in ('user_email', 'email'):
+        raw_email = str(metadata.get(field_name, '')).strip()
+        if not raw_email:
+            continue
+        try:
+            return normalize_email(raw_email)
+        except ApiError:
+            continue
+    return ''
+
+
 def mark_stripe_webhook_event_processed(
     connection: sqlite3.Connection,
     event_id: str,
@@ -1129,6 +1265,12 @@ def resolve_checkout_user(
             if user_row is not None:
                 return user_row
 
+    metadata_email = read_stripe_email_from_metadata(checkout_session)
+    if metadata_email:
+        user_row = get_user_by_email(connection, metadata_email)
+        if user_row is not None:
+            return user_row
+
     customer_id = read_stripe_string(checkout_session, 'customer')
     if customer_id:
         user_row = get_user_by_stripe_customer_id(connection, customer_id)
@@ -1173,7 +1315,13 @@ def resolve_subscription_user(
         except ApiError:
             normalized_email = ''
         if normalized_email:
-            return get_user_by_email(connection, normalized_email)
+            user_row = get_user_by_email(connection, normalized_email)
+            if user_row is not None:
+                return user_row
+
+    metadata_email = read_stripe_email_from_metadata(subscription_like)
+    if metadata_email:
+        return get_user_by_email(connection, metadata_email)
 
     return None
 
@@ -2061,7 +2209,8 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
             AUTH_LOGIN_API_PATH,
             AUTH_LOGOUT_API_PATH,
             AUTH_FORGOT_PASSWORD_API_PATH,
-            AUTH_RESET_PASSWORD_API_PATH
+            AUTH_RESET_PASSWORD_API_PATH,
+            AUTH_PROFILE_IMAGE_API_PATH
         }
         if parsed_path not in {CHAT_API_PATH, STRIPE_WEBHOOK_API_PATH, *checkout_post_paths, *auth_post_paths}:
             self._send_json(HTTPStatus.NOT_FOUND, {'error': 'Route not found.'})
@@ -2275,7 +2424,8 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.CREATED,
                     {
                         'message': 'Account created.',
-                        'user': build_public_user_payload(user_row)
+                        'user': build_public_user_payload(user_row),
+                        **build_session_transport_payload(self, session_token, expires_at)
                     },
                     extra_headers=[('Set-Cookie', set_session_cookie(self, session_token, expires_at))]
                 )
@@ -2290,14 +2440,15 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.OK,
                     {
                         'message': 'Logged in.',
-                        'user': build_public_user_payload(user_row)
+                        'user': build_public_user_payload(user_row),
+                        **build_session_transport_payload(self, session_token, expires_at)
                     },
                     extra_headers=[('Set-Cookie', set_session_cookie(self, session_token, expires_at))]
                 )
                 return
 
             if parsed_path == AUTH_LOGOUT_API_PATH:
-                logout_user_account(get_session_token_from_cookie_header(self.headers.get('Cookie')))
+                logout_user_account(get_session_token_from_request(self))
                 self._send_json(
                     HTTPStatus.OK,
                     {'message': 'Logged out.'},
@@ -2322,9 +2473,24 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.OK,
                     {
                         'message': 'Password reset complete.',
-                        'user': build_public_user_payload(user_row)
+                        'user': build_public_user_payload(user_row),
+                        **build_session_transport_payload(self, session_token, expires_at)
                     },
                     extra_headers=[('Set-Cookie', set_session_cookie(self, session_token, expires_at))]
+                )
+                return
+
+            if parsed_path == AUTH_PROFILE_IMAGE_API_PATH:
+                user_row = update_profile_image(
+                    self,
+                    str(payload.get('image_data_url', ''))
+                )
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        'message': 'Profile picture updated.',
+                        'user': build_public_user_payload(user_row)
+                    }
                 )
                 return
 
@@ -2358,7 +2524,7 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
         else:
             self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', f'Content-Type, {SESSION_HEADER_NAME}')
         self.send_header('Access-Control-Allow-Credentials', 'true')
 
     def _send_dev_no_store_headers(self) -> None:
