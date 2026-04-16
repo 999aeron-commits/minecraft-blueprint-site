@@ -4,6 +4,8 @@ const ctx = pixelCanvas.getContext('2d');
 const welcomeState = document.getElementById('welcomeState');
 const appWorkspace = document.getElementById('appWorkspace');
 const sizeSelector = document.getElementById('sizeSelector');
+const openXlPreviewBtn = document.getElementById('openXlPreviewBtn');
+const openMegaPreviewBtn = document.getElementById('openMegaPreviewBtn');
 const sectionSizeSelector = document.getElementById('sectionSizeSelector');
 const comparisonPreviewViewer = document.getElementById('comparisonPreviewViewer');
 const syncComparisonCheckbox = document.getElementById('syncComparisonCheckbox');
@@ -50,6 +52,13 @@ const chatSendBtn = document.getElementById('chatSendBtn');
 const upgradeModal = document.getElementById('upgradeModal');
 const upgradeModalDescription = document.getElementById('upgradeModalDescription');
 const upgradeModalCloseBtn = document.getElementById('upgradeModalCloseBtn');
+const lockedSizePreviewPanel = document.getElementById('lockedSizePreviewPanel');
+const lockedSizePreviewTitle = document.getElementById('lockedSizePreviewTitle');
+const lockedSizePreviewMeta = document.getElementById('lockedSizePreviewMeta');
+const lockedSizePreviewFrame = document.getElementById('lockedSizePreviewFrame');
+const lockedSizePreviewImage = document.getElementById('lockedSizePreviewImage');
+const lockedSizePreviewPlaceholder = document.getElementById('lockedSizePreviewPlaceholder');
+const lockedSizePreviewUpsell = document.getElementById('lockedSizePreviewUpsell');
 const unlockCurrentBlueprintBtn = document.getElementById('unlockCurrentBlueprintBtn');
 const unlockLifetimeBtn = document.getElementById('unlockLifetimeBtn');
 const upgradeModalStatus = document.getElementById('upgradeModalStatus');
@@ -382,8 +391,122 @@ function getOptionDisplayLabel(option) {
     }
 
     return isBlueprintSizeOptionLocked(option)
-        ? `${option.label} (Locked)`
+        ? `${option.label} (Premium)`
         : option.label;
+}
+
+function getBlueprintOptionDimensionLabel(option) {
+    if (!option) {
+        return '--';
+    }
+
+    return `${option.width} x ${option.height}`;
+}
+
+function getPremiumPreviewDisplayLabel(option) {
+    if (!option) {
+        return 'Premium';
+    }
+
+    if (option.longSide >= 256) {
+        return 'Mega';
+    }
+
+    if (option.longSide >= 128) {
+        return 'XL';
+    }
+
+    return option.label || 'Premium';
+}
+
+function getPremiumPreviewOptionByLongSide(longSide) {
+    const options = currentBlueprintSizeOptions.length
+        ? currentBlueprintSizeOptions
+        : getBlueprintSizeOptions(currentImageOriginalWidth, currentImageOriginalHeight);
+
+    return options.find((option) => option.longSide === longSide) || {
+        ...calculateBlueprintDimensionsForLongSide(longSide, currentImageOriginalWidth, currentImageOriginalHeight),
+        label: longSide >= 256 ? 'Mega' : 'X-Large',
+        longSide,
+        value: `${longSide}x${longSide}`
+    };
+}
+
+function updateLockedSizePreview(option = null) {
+    const isPreviewableOption = !!option && isPremiumBlueprintSizeOption(option);
+    if (!lockedSizePreviewPanel) {
+        return;
+    }
+
+    lockedSizePreviewPanel.hidden = !isPreviewableOption;
+    if (!isPreviewableOption) {
+        if (lockedSizePreviewImage instanceof HTMLImageElement) {
+            lockedSizePreviewImage.hidden = true;
+            lockedSizePreviewImage.removeAttribute('src');
+        }
+        if (lockedSizePreviewPlaceholder instanceof HTMLElement) {
+            lockedSizePreviewPlaceholder.hidden = false;
+            lockedSizePreviewPlaceholder.textContent = 'Upload an image to see the premium teaser preview.';
+        }
+        return;
+    }
+
+    if (lockedSizePreviewTitle) {
+        lockedSizePreviewTitle.textContent = `${getPremiumPreviewDisplayLabel(option)} Preview`;
+    }
+    if (lockedSizePreviewMeta) {
+        lockedSizePreviewMeta.textContent = getBlueprintOptionDimensionLabel(option);
+    }
+    if (lockedSizePreviewUpsell) {
+        lockedSizePreviewUpsell.textContent = (
+            `${getPremiumPreviewDisplayLabel(option)} opens a ${getBlueprintOptionDimensionLabel(option)} premium build. `
+            + 'Unlock premium to open the full blueprint, focused sections, materials, and section navigation.'
+        );
+    }
+    if (lockedSizePreviewFrame instanceof HTMLElement) {
+        lockedSizePreviewFrame.style.aspectRatio = `${option.width} / ${option.height}`;
+    }
+
+    const hasCurrentImage = typeof currentImageSource === 'string' && currentImageSource.trim();
+    if (lockedSizePreviewImage instanceof HTMLImageElement) {
+        lockedSizePreviewImage.alt = `${getPremiumPreviewDisplayLabel(option)} premium teaser preview`;
+        if (hasCurrentImage) {
+            lockedSizePreviewImage.src = currentImageSource;
+            lockedSizePreviewImage.hidden = false;
+        } else {
+            lockedSizePreviewImage.hidden = true;
+            lockedSizePreviewImage.removeAttribute('src');
+        }
+    }
+    if (lockedSizePreviewPlaceholder instanceof HTMLElement) {
+        lockedSizePreviewPlaceholder.hidden = hasCurrentImage;
+        if (!hasCurrentImage) {
+            lockedSizePreviewPlaceholder.textContent = `${getPremiumPreviewDisplayLabel(option)} teaser preview. Upload an image to see the premium preview frame.`;
+        }
+    }
+}
+
+function getFallbackUnlockedBlueprintOption() {
+    const fallbackValue = getPreferredUnlockedSizeValue();
+    return findSizeOptionByValue(fallbackValue)
+        || currentBlueprintSizeOptions.find((option) => !isBlueprintSizeOptionLocked(option))
+        || currentBlueprintSizeOptions[0]
+        || null;
+}
+
+function showLockedSizePreview(option) {
+    if (!option) {
+        openUpgradeModal();
+        return;
+    }
+
+    const fallbackOption = getFallbackUnlockedBlueprintOption();
+    if (fallbackOption) {
+        sizeSelector.value = fallbackOption.value;
+        setCurrentGridDimensions(fallbackOption.width, fallbackOption.height);
+    }
+
+    openUpgradeModal(option);
 }
 
 function setUpgradeModalStatus(message = '', isError = false) {
@@ -419,15 +542,23 @@ function setUpgradeModalOpen(isOpen) {
 function openUpgradeModal(option) {
     pendingPremiumSizeOption = option || null;
     setUpgradeModalStatus('');
+    updateLockedSizePreview(option || null);
     if (upgradeModalDescription) {
-        const targetLabel = option?.label || 'XL and Mega';
-        upgradeModalDescription.textContent = `${targetLabel} is part of the premium size tier. Choose how you want to unlock larger blueprint sizes.`;
+        if (option && isPremiumBlueprintSizeOption(option)) {
+            upgradeModalDescription.textContent = (
+                `${getPremiumPreviewDisplayLabel(option)} is locked behind premium access. `
+                + 'This preview stays non-buildable until premium is unlocked.'
+            );
+        } else {
+            upgradeModalDescription.textContent = 'Unlock XL and Mega sizes with a monthly subscription or a lifetime unlock.';
+        }
     }
     setUpgradeModalOpen(true);
 }
 
 function closeUpgradeModal() {
     pendingPremiumSizeOption = null;
+    updateLockedSizePreview(null);
     setUpgradeModalOpen(false);
 }
 
@@ -4082,6 +4213,13 @@ function regenerateBlueprint() {
         return;
     }
 
+    const selectedOption = findSizeOptionByValue(sizeSelector.value);
+    if (selectedOption && isBlueprintSizeOptionLocked(selectedOption)) {
+        console.warn('[premium] Blocked locked blueprint regeneration.', { size: selectedOption.value });
+        showLockedSizePreview(selectedOption);
+        return;
+    }
+
     currentBlueprint = buildBlueprintFromGrid(currentPixelGrid);
     focusedLegendInversionBlock = null;
     invalidateBlueprintCaches();
@@ -4143,6 +4281,12 @@ function processImageSource(imageSource, options = {}) {
         currentImageOriginalWidth = img.naturalWidth || img.width || currentImageOriginalWidth;
         currentImageOriginalHeight = img.naturalHeight || img.height || currentImageOriginalHeight;
         updateBlueprintSizeOptions(currentImageOriginalWidth, currentImageOriginalHeight, sizeSelector.value);
+        const selectedOption = findSizeOptionByValue(sizeSelector.value);
+        if (selectedOption && isBlueprintSizeOptionLocked(selectedOption)) {
+            console.warn('[premium] Blocked locked blueprint generation during image processing.', { size: selectedOption.value });
+            showLockedSizePreview(selectedOption);
+            return;
+        }
         const { width: gridWidth, height: gridHeight } = parseBlueprintSizeValue(sizeSelector.value);
         const resizedCanvas = document.createElement('canvas');
         resizedCanvas.width = gridWidth;
@@ -4253,13 +4397,7 @@ imageUpload.addEventListener('change', (event) => {
 sizeSelector.addEventListener('change', function () {
     const selectedOption = findSizeOptionByValue(this.value);
     if (selectedOption && isBlueprintSizeOptionLocked(selectedOption)) {
-        const fallbackValue = getPreferredUnlockedSizeValue();
-        const fallbackOption = findSizeOptionByValue(fallbackValue);
-        if (fallbackOption) {
-            this.value = fallbackOption.value;
-            setCurrentGridDimensions(fallbackOption.width, fallbackOption.height);
-        }
-        openUpgradeModal(selectedOption);
+        showLockedSizePreview(selectedOption);
         return;
     }
 
@@ -4442,6 +4580,18 @@ if (openAccountBtn) {
 if (openPremiumBtn) {
     openPremiumBtn.addEventListener('click', () => {
         openUpgradeModal();
+    });
+}
+
+if (openXlPreviewBtn) {
+    openXlPreviewBtn.addEventListener('click', () => {
+        openUpgradeModal(getPremiumPreviewOptionByLongSide(128));
+    });
+}
+
+if (openMegaPreviewBtn) {
+    openMegaPreviewBtn.addEventListener('click', () => {
+        openUpgradeModal(getPremiumPreviewOptionByLongSide(256));
     });
 }
 

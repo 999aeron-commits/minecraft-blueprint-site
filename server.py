@@ -12,6 +12,7 @@ import secrets
 import sqlite3
 import traceback
 from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -179,6 +180,8 @@ PROFILE_IMAGE_MAX_BYTES = 128 * 1024
 PROFILE_IMAGE_DATA_URL_PREFIX = 'data:image/png;base64,'
 EMAIL_PATTERN = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 SUBSCRIPTION_ACTIVE_STATUSES = {'active', 'trialing'}
+DUPLICATE_EMAIL_ERROR_MESSAGE = 'An account with this email already exists.'
+USERS_EMAIL_UNIQUE_INDEX_NAME = 'idx_users_email_unique'
 
 
 class ApiError(Exception):
@@ -420,6 +423,7 @@ def initialize_database() -> None:
             '''
         )
         ensure_table_column(connection, 'users', 'profile_image_data_url', 'TEXT')
+        normalize_and_enforce_user_email_uniqueness(connection)
         connection.commit()
     finally:
         connection.close()
@@ -449,6 +453,228 @@ def ensure_table_column(
     if column_name.strip().lower() in existing_columns:
         return
     connection.execute(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}')
+
+
+def normalize_stored_email_value(email: object) -> str:
+    return str(email or '').strip().lower()
+
+
+def choose_non_empty_value(*values: object) -> str | None:
+    for value in values:
+        normalized_value = str(value or '').strip()
+        if normalized_value:
+            return normalized_value
+    return None
+
+
+def choose_earliest_iso_timestamp(*values: object) -> str | None:
+    normalized_values = [
+        str(value or '').strip()
+        for value in values
+        if str(value or '').strip()
+    ]
+    if not normalized_values:
+        return None
+    return min(normalized_values)
+
+
+def choose_latest_iso_timestamp(*values: object) -> str | None:
+    normalized_values = [
+        str(value or '').strip()
+        for value in values
+        if str(value or '').strip()
+    ]
+    if not normalized_values:
+        return None
+    return max(normalized_values)
+
+
+def choose_subscription_status(*values: object) -> str | None:
+    normalized_values = [
+        str(value or '').strip()
+        for value in values
+        if str(value or '').strip()
+    ]
+    if not normalized_values:
+        return None
+    for value in normalized_values:
+        if value in SUBSCRIPTION_ACTIVE_STATUSES:
+            return value
+    return normalized_values[0]
+
+
+def choose_canonical_user_row(user_rows: list[sqlite3.Row]) -> sqlite3.Row:
+    def rank(row: sqlite3.Row) -> tuple[object, ...]:
+        subscription_status = str(row['stripe_subscription_status'] or '').strip()
+        return (
+            1 if subscription_status in SUBSCRIPTION_ACTIVE_STATUSES else 0,
+            1 if str(row['stripe_subscription_id'] or '').strip() else 0,
+            1 if str(row['stripe_customer_id'] or '').strip() else 0,
+            1 if str(row['lifetime_premium_unlocked_at'] or '').strip() else 0,
+            1 if str(row['last_login_at'] or '').strip() else 0,
+            1 if str(row['profile_image_data_url'] or '').strip() else 0,
+            str(row['last_login_at'] or ''),
+            str(row['updated_at'] or ''),
+            str(row['created_at'] or ''),
+            -int(row['id'])
+        )
+
+    return max(user_rows, key=rank)
+
+
+def choose_password_hash_for_merged_user(user_rows: list[sqlite3.Row]) -> str:
+    def rank(row: sqlite3.Row) -> tuple[object, ...]:
+        return (
+            str(row['last_login_at'] or ''),
+            str(row['updated_at'] or ''),
+            -int(row['id'])
+        )
+
+    return str(max(user_rows, key=rank)['password_hash'])
+
+
+def choose_merged_user_field(
+    field_name: str,
+    normalized_email: str,
+    preferred_rows: list[sqlite3.Row]
+) -> str | None:
+    normalized_values = [
+        str(row[field_name] or '').strip()
+        for row in preferred_rows
+        if str(row[field_name] or '').strip()
+    ]
+    if not normalized_values:
+        return None
+
+    chosen_value = normalized_values[0]
+    if any(value != chosen_value for value in normalized_values[1:]):
+        log_auth_event(
+            f'Conflicting {field_name} values found while merging duplicate accounts for {normalized_email}. '
+            f'Keeping the canonical value.'
+        )
+    return chosen_value
+
+
+def merge_duplicate_users_for_email(
+    connection: sqlite3.Connection,
+    normalized_email: str,
+    user_rows: list[sqlite3.Row]
+) -> None:
+    if len(user_rows) < 2:
+        return
+
+    canonical_row = choose_canonical_user_row(user_rows)
+    preferred_rows = [canonical_row, *[row for row in user_rows if int(row['id']) != int(canonical_row['id'])]]
+    merged_password_hash = choose_password_hash_for_merged_user(preferred_rows)
+    merged_profile_image = choose_non_empty_value(*(row['profile_image_data_url'] for row in preferred_rows))
+    merged_lifetime_unlock = choose_earliest_iso_timestamp(*(row['lifetime_premium_unlocked_at'] for row in preferred_rows))
+    merged_stripe_customer_id = choose_merged_user_field('stripe_customer_id', normalized_email, preferred_rows)
+    merged_stripe_subscription_id = choose_merged_user_field('stripe_subscription_id', normalized_email, preferred_rows)
+    merged_subscription_status = choose_subscription_status(*(row['stripe_subscription_status'] for row in preferred_rows))
+    merged_created_at = choose_earliest_iso_timestamp(*(row['created_at'] for row in preferred_rows))
+    merged_updated_at = choose_latest_iso_timestamp(*(row['updated_at'] for row in preferred_rows))
+    merged_last_login_at = choose_latest_iso_timestamp(*(row['last_login_at'] for row in preferred_rows))
+
+    log_auth_event(
+        f'Merging {len(user_rows)} user records for normalized email {normalized_email} into user_id={int(canonical_row["id"])}.'
+    )
+
+    for duplicate_row in user_rows:
+        duplicate_user_id = int(duplicate_row['id'])
+        if duplicate_user_id == int(canonical_row['id']):
+            continue
+
+        connection.execute(
+            'UPDATE sessions SET user_id = ? WHERE user_id = ?',
+            (canonical_row['id'], duplicate_user_id)
+        )
+        connection.execute(
+            'UPDATE password_reset_tokens SET user_id = ? WHERE user_id = ?',
+            (canonical_row['id'], duplicate_user_id)
+        )
+        connection.execute(
+            'UPDATE stripe_purchases SET user_id = ? WHERE user_id = ?',
+            (canonical_row['id'], duplicate_user_id)
+        )
+        connection.execute('DELETE FROM users WHERE id = ?', (duplicate_user_id,))
+
+    connection.execute(
+        '''
+        UPDATE users
+        SET email = ?,
+            password_hash = ?,
+            profile_image_data_url = ?,
+            lifetime_premium_unlocked_at = ?,
+            stripe_customer_id = ?,
+            stripe_subscription_id = ?,
+            stripe_subscription_status = ?,
+            created_at = COALESCE(?, created_at),
+            updated_at = COALESCE(?, updated_at),
+            last_login_at = ?
+        WHERE id = ?
+        ''',
+        (
+            normalized_email,
+            merged_password_hash,
+            merged_profile_image,
+            merged_lifetime_unlock,
+            merged_stripe_customer_id,
+            merged_stripe_subscription_id,
+            merged_subscription_status,
+            merged_created_at,
+            merged_updated_at,
+            merged_last_login_at,
+            canonical_row['id']
+        )
+    )
+
+
+def normalize_and_enforce_user_email_uniqueness(connection: sqlite3.Connection) -> None:
+    user_rows = connection.execute(
+        '''
+        SELECT
+            id,
+            email,
+            password_hash,
+            profile_image_data_url,
+            lifetime_premium_unlocked_at,
+            stripe_customer_id,
+            stripe_subscription_id,
+            stripe_subscription_status,
+            created_at,
+            updated_at,
+            last_login_at
+        FROM users
+        ORDER BY id ASC
+        '''
+    ).fetchall()
+    if not user_rows:
+        connection.execute(
+            f'CREATE UNIQUE INDEX IF NOT EXISTS {USERS_EMAIL_UNIQUE_INDEX_NAME} ON users(email COLLATE NOCASE)'
+        )
+        return
+
+    grouped_rows: dict[str, list[sqlite3.Row]] = {}
+    for user_row in user_rows:
+        normalized_email = normalize_stored_email_value(user_row['email'])
+        if not normalized_email:
+            raise RuntimeError(f'User record {int(user_row["id"])} has a blank email and cannot be normalized.')
+        grouped_rows.setdefault(normalized_email, []).append(user_row)
+
+    for normalized_email, duplicate_rows in grouped_rows.items():
+        if len(duplicate_rows) > 1:
+            merge_duplicate_users_for_email(connection, normalized_email, duplicate_rows)
+        else:
+            existing_email = str(duplicate_rows[0]['email'] or '')
+            if existing_email != normalized_email:
+                connection.execute(
+                    'UPDATE users SET email = ? WHERE id = ?',
+                    (normalized_email, duplicate_rows[0]['id'])
+                )
+
+    connection.execute(
+        f'CREATE UNIQUE INDEX IF NOT EXISTS {USERS_EMAIL_UNIQUE_INDEX_NAME} ON users(email COLLATE NOCASE)'
+    )
 
 
 def cleanup_expired_auth_records(connection: sqlite3.Connection) -> None:
@@ -576,11 +802,14 @@ def create_session(
     connection: sqlite3.Connection,
     user_id: int,
     *,
-    current_time: datetime | None = None
+    current_time: datetime | None = None,
+    replace_existing_user_sessions: bool = False
 ) -> tuple[str, str]:
     now = current_time or utc_now()
     expires_at = now + timedelta(days=SESSION_DURATION_DAYS)
     session_token = generate_token()
+    if replace_existing_user_sessions:
+        connection.execute('DELETE FROM sessions WHERE user_id = ?', (user_id,))
     connection.execute(
         '''
         INSERT INTO sessions (
@@ -661,11 +890,11 @@ def get_authenticated_user_record(
     handler: SimpleHTTPRequestHandler,
     *,
     refresh_session: bool = False
-) -> tuple[sqlite3.Row | None, str | None]:
+) -> tuple[sqlite3.Row | None, str | None, str | None]:
     cleanup_expired_auth_records(connection)
     session_token = get_session_token_from_request(handler)
     if not session_token:
-        return None, None
+        return None, None, None
 
     token_hash = hash_token(session_token)
     session_row = connection.execute(
@@ -692,16 +921,19 @@ def get_authenticated_user_record(
         (token_hash,)
     ).fetchone()
     if session_row is None:
-        return None, None
+        return None, None, None
 
     expires_at = parse_isoformat(session_row['expires_at'])
     if expires_at is None or expires_at <= utc_now():
         connection.execute('DELETE FROM sessions WHERE token_hash = ?', (token_hash,))
-        return None, None
+        return None, None, None
+
+    expires_at_iso = str(session_row['expires_at'] or '').strip() or None
 
     if refresh_session:
         now = utc_now()
         refreshed_expiration = now + timedelta(days=SESSION_DURATION_DAYS)
+        expires_at_iso = to_isoformat(refreshed_expiration)
         connection.execute(
             '''
             UPDATE sessions
@@ -710,13 +942,13 @@ def get_authenticated_user_record(
             ''',
             (
                 to_isoformat(now),
-                to_isoformat(refreshed_expiration),
+                expires_at_iso,
                 session_row['session_id']
             )
         )
 
     user_row = get_user_by_id(connection, int(session_row['id']))
-    return user_row, session_token
+    return user_row, session_token, expires_at_iso
 
 
 def get_premium_whitelist_emails() -> set[str]:
@@ -830,7 +1062,7 @@ def update_profile_image(
     validated_image_data_url = validate_profile_image_data_url(image_data_url)
     connection = get_database_connection()
     try:
-        user_row, _ = get_authenticated_user_record(connection, handler, refresh_session=True)
+        user_row, _, _ = get_authenticated_user_record(connection, handler, refresh_session=True)
         if user_row is None:
             raise ApiError(HTTPStatus.UNAUTHORIZED, 'Log in before updating your profile picture.')
 
@@ -858,6 +1090,22 @@ def update_profile_image(
         connection.close()
 
 
+def should_use_cross_site_session_cookie(handler: SimpleHTTPRequestHandler) -> bool:
+    request_origin = get_request_origin(handler)
+    if not request_origin.startswith('https://'):
+        return False
+
+    request_header_origin = handler.headers.get('Origin')
+    if not isinstance(request_header_origin, str) or not request_header_origin.strip():
+        return False
+
+    normalized_request_origin = request_header_origin.strip().lower()
+    if normalized_request_origin == 'null':
+        return False
+
+    return normalized_request_origin != request_origin.strip().lower()
+
+
 def set_session_cookie(
     handler: SimpleHTTPRequestHandler,
     session_token: str,
@@ -865,11 +1113,12 @@ def set_session_cookie(
 ) -> str:
     request_origin = get_request_origin(handler)
     secure_cookie = request_origin.startswith('https://')
+    same_site_value = 'None' if should_use_cross_site_session_cookie(handler) and secure_cookie else 'Lax'
     cookie_parts = [
         f'{SESSION_COOKIE_NAME}={session_token}',
         'Path=/',
         'HttpOnly',
-        'SameSite=Lax'
+        f'SameSite={same_site_value}'
     ]
     if secure_cookie:
         cookie_parts.append('Secure')
@@ -878,6 +1127,7 @@ def set_session_cookie(
     if expiration is not None:
         max_age = max(0, int((expiration - utc_now()).total_seconds()))
         cookie_parts.append(f'Max-Age={max_age}')
+        cookie_parts.append(f'Expires={format_datetime(expiration, usegmt=True)}')
 
     return '; '.join(cookie_parts)
 
@@ -885,12 +1135,14 @@ def set_session_cookie(
 def clear_session_cookie(handler: SimpleHTTPRequestHandler) -> str:
     request_origin = get_request_origin(handler)
     secure_cookie = request_origin.startswith('https://')
+    same_site_value = 'None' if should_use_cross_site_session_cookie(handler) and secure_cookie else 'Lax'
     cookie_parts = [
         f'{SESSION_COOKIE_NAME}=',
         'Path=/',
         'HttpOnly',
-        'SameSite=Lax',
-        'Max-Age=0'
+        f'SameSite={same_site_value}',
+        'Max-Age=0',
+        'Expires=Thu, 01 Jan 1970 00:00:00 GMT'
     ]
     if secure_cookie:
         cookie_parts.append('Secure')
@@ -898,9 +1150,24 @@ def clear_session_cookie(handler: SimpleHTTPRequestHandler) -> str:
     return '; '.join(cookie_parts)
 
 
+def is_duplicate_email_integrity_error(error: sqlite3.IntegrityError) -> bool:
+    message = str(error).strip().lower()
+    return (
+        'unique constraint failed: users.email' in message
+        or USERS_EMAIL_UNIQUE_INDEX_NAME.lower() in message
+    )
+
+
 def register_user_account(email: str, password: str, confirm_password: str) -> tuple[sqlite3.Row, str, str]:
-    normalized_email = normalize_email(email)
-    validated_password = validate_password_confirmation(password, confirm_password)
+    attempted_email = normalize_stored_email_value(email)
+    try:
+        normalized_email = normalize_email(email)
+        validated_password = validate_password_confirmation(password, confirm_password)
+    except ApiError as error:
+        log_auth_event(
+            f'Registration failed for {attempted_email or "<invalid email>"}: {error.message}'
+        )
+        raise
     now = utc_now()
     timestamp = to_isoformat(now)
 
@@ -909,7 +1176,8 @@ def register_user_account(email: str, password: str, confirm_password: str) -> t
         cleanup_expired_auth_records(connection)
         existing_user = get_user_by_email(connection, normalized_email)
         if existing_user is not None:
-            raise ApiError(HTTPStatus.CONFLICT, 'Email already in use.')
+            log_auth_event(f'Registration rejected for {normalized_email}: duplicate email.')
+            raise ApiError(HTTPStatus.CONFLICT, DUPLICATE_EMAIL_ERROR_MESSAGE)
 
         cursor = connection.execute(
             '''
@@ -928,12 +1196,30 @@ def register_user_account(email: str, password: str, confirm_password: str) -> t
                 timestamp
             )
         )
-        session_token, expires_at = create_session(connection, int(cursor.lastrowid), current_time=now)
+        session_token, expires_at = create_session(
+            connection,
+            int(cursor.lastrowid),
+            current_time=now,
+            replace_existing_user_sessions=True
+        )
         connection.commit()
         created_user = get_user_by_id(connection, int(cursor.lastrowid))
         if created_user is None:
             raise RuntimeError('User creation did not return a record.')
+        log_auth_event(f'Registration succeeded for {normalized_email}. user_id={int(created_user["id"])}')
         return created_user, session_token, expires_at
+    except sqlite3.IntegrityError as error:
+        connection.rollback()
+        if is_duplicate_email_integrity_error(error):
+            log_auth_event(f'Registration rejected for {normalized_email}: duplicate email integrity check.')
+            raise ApiError(HTTPStatus.CONFLICT, DUPLICATE_EMAIL_ERROR_MESSAGE) from error
+        log_auth_event(f'Registration failed for {normalized_email}: database integrity error.')
+        raise
+    except ApiError as error:
+        connection.rollback()
+        if error.message != DUPLICATE_EMAIL_ERROR_MESSAGE:
+            log_auth_event(f'Registration failed for {normalized_email}: {error.message}')
+        raise
     except Exception:
         connection.rollback()
         raise
@@ -942,14 +1228,21 @@ def register_user_account(email: str, password: str, confirm_password: str) -> t
 
 
 def login_user_account(email: str, password: str) -> tuple[sqlite3.Row, str, str]:
-    normalized_email = normalize_email(email)
+    attempted_email = normalize_stored_email_value(email)
+    try:
+        normalized_email = normalize_email(email)
+    except ApiError as error:
+        log_auth_event(f'Login failed for {attempted_email or "<invalid email>"}: {error.message}')
+        raise
     connection = get_database_connection()
     try:
         cleanup_expired_auth_records(connection)
         user_row = get_user_by_email(connection, normalized_email)
         if user_row is None:
+            log_auth_event(f'Login failed for {normalized_email}: account not found.')
             raise ApiError(HTTPStatus.NOT_FOUND, 'Account not found.')
         if not verify_password(password, str(user_row['password_hash'])):
+            log_auth_event(f'Login failed for {normalized_email}: wrong password.')
             raise ApiError(HTTPStatus.UNAUTHORIZED, 'Wrong password.')
 
         now = utc_now()
@@ -965,12 +1258,23 @@ def login_user_account(email: str, password: str) -> tuple[sqlite3.Row, str, str
                 user_row['id']
             )
         )
-        session_token, expires_at = create_session(connection, int(user_row['id']), current_time=now)
+        session_token, expires_at = create_session(
+            connection,
+            int(user_row['id']),
+            current_time=now,
+            replace_existing_user_sessions=True
+        )
         connection.commit()
         refreshed_user = get_user_by_id(connection, int(user_row['id']))
         if refreshed_user is None:
             raise RuntimeError('Unable to load the logged-in user.')
+        log_auth_event(f'Login succeeded for {normalized_email}. user_id={int(refreshed_user["id"])}')
         return refreshed_user, session_token, expires_at
+    except ApiError as error:
+        connection.rollback()
+        if error.message not in {'Account not found.', 'Wrong password.'}:
+            log_auth_event(f'Login failed for {normalized_email}: {error.message}')
+        raise
     except Exception:
         connection.rollback()
         raise
@@ -986,6 +1290,7 @@ def logout_user_account(session_token: str | None) -> None:
     try:
         connection.execute('DELETE FROM sessions WHERE token_hash = ?', (hash_token(session_token),))
         connection.commit()
+        log_auth_event('Logout succeeded for the active session.')
     finally:
         connection.close()
 
@@ -1285,16 +1590,20 @@ def get_authenticated_user_payload(
     handler: SimpleHTTPRequestHandler,
     *,
     refresh_session: bool = False
-) -> dict[str, object] | None:
+) -> tuple[dict[str, object] | None, str | None, str | None]:
     connection = get_database_connection()
     try:
-        user_row, _ = get_authenticated_user_record(connection, handler, refresh_session=refresh_session)
+        user_row, session_token, expires_at = get_authenticated_user_record(
+            connection,
+            handler,
+            refresh_session=refresh_session
+        )
         if user_row is None:
             connection.commit()
-            return None
+            return None, None, None
         synced_user = sync_user_subscription_status(connection, user_row)
         connection.commit()
-        return build_public_user_payload(synced_user)
+        return build_public_user_payload(synced_user), session_token, expires_at
     finally:
         connection.close()
 
@@ -1918,7 +2227,7 @@ def create_checkout_session(
 
     connection = get_database_connection()
     try:
-        user_row, _ = get_authenticated_user_record(connection, handler, refresh_session=True)
+        user_row, _, _ = get_authenticated_user_record(connection, handler, refresh_session=True)
         if user_row is None:
             connection.commit()
             raise ApiError(
@@ -2567,8 +2876,12 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
 
     def _handle_auth_me(self) -> None:
         try:
-            user_payload = get_authenticated_user_payload(self)
+            user_payload, session_token, expires_at = get_authenticated_user_payload(
+                self,
+                refresh_session=True
+            )
         except Exception as error:
+            log_auth_event('Session restore failed due to an unexpected server error.')
             log_auth_exception('Unable to load auth session', error)
             self._send_json(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -2576,12 +2889,27 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
             )
             return
 
+        response_headers: list[tuple[str, str]] = []
+        if user_payload is not None and session_token and expires_at:
+            response_headers.append(('Set-Cookie', set_session_cookie(self, session_token, expires_at)))
+            log_auth_event(f'Session restore succeeded for {user_payload["email"]}.')
+        else:
+            if get_session_token_from_request(self):
+                response_headers.append(('Set-Cookie', clear_session_cookie(self)))
+            log_auth_event('Session restore found no active session.')
+
         self._send_json(
             HTTPStatus.OK,
             {
                 'authenticated': user_payload is not None,
-                'user': user_payload
-            }
+                'user': user_payload,
+                **(
+                    build_session_transport_payload(self, session_token, expires_at)
+                    if user_payload is not None and session_token and expires_at
+                    else {}
+                )
+            },
+            extra_headers=response_headers or None
         )
 
     def _handle_auth_post(self, parsed_path: str, payload: dict[str, object]) -> None:
