@@ -68,6 +68,7 @@ const openCreateAccountBtn = document.getElementById('openCreateAccountBtn');
 const openLoginBtn = document.getElementById('openLoginBtn');
 const openAccountBtn = document.getElementById('openAccountBtn');
 const changeProfileImageBtn = document.getElementById('changeProfileImageBtn');
+const openPremiumBtn = document.getElementById('openPremiumBtn');
 const accountProfileBubbleFallback = document.getElementById('accountProfileBubbleFallback');
 const accountProfileBubbleImage = document.getElementById('accountProfileBubbleImage');
 const accountProfileBubbleStatus = document.getElementById('accountProfileBubbleStatus');
@@ -131,6 +132,7 @@ const FILE_MODE_SESSION_TOKEN_STORAGE_KEY = 'photosynthesizer_file_mode_session_
 const API_SESSION_HEADER_NAME = 'X-Blueprint-Session';
 const PREMIUM_SIZE_LONG_SIDE_THRESHOLD = 128;
 const AUTH_EMAIL_ERROR_MESSAGE = 'Invalid email.';
+const AUTH_DUPLICATE_EMAIL_MESSAGE = 'An account with this email already exists.';
 const AUTH_PASSWORD_REQUIRED_MESSAGE = 'Enter your password.';
 const AUTH_PASSWORD_TOO_SHORT_MESSAGE = 'Password too short.';
 const AUTH_PASSWORD_NUMBER_MESSAGE = 'Password must include a number.';
@@ -1114,7 +1116,7 @@ function hydrateResetTokenFromUrl() {
 }
 
 function setRegisterError(message) {
-    if (message === AUTH_EMAIL_ERROR_MESSAGE || message === 'Email already in use.') {
+    if (message === AUTH_EMAIL_ERROR_MESSAGE || message === AUTH_DUPLICATE_EMAIL_MESSAGE) {
         setAuthFieldError('registerEmail', message);
         return;
     }
@@ -1263,11 +1265,14 @@ async function refreshAuthenticatedUser(options = {}) {
             storeFileModeSessionToken('');
         }
         setAuthenticatedUser(payload?.authenticated ? payload.user || null : null);
+        if (payload?.authenticated && payload?.user?.email) {
+            console.info('[auth] Session restore succeeded.', { email: payload.user.email });
+        } else if (!options.quiet) {
+            console.info('[auth] Session restore found no active session.');
+        }
         return payload?.user || null;
     } catch (error) {
-        if (!options.quiet) {
-            console.error('[auth] Failed to load current session.', error);
-        }
+        console.error('[auth] Session restore failed.', error);
         if (!options.preserveOnError) {
             setAuthenticatedUser(null);
         }
@@ -1374,9 +1379,11 @@ async function submitRegisterForm(event) {
             body: JSON.stringify({ email, password, confirm_password: confirmPassword })
         });
         setAuthenticatedUser(payload?.user || null);
+        console.info('[auth] Registration succeeded.', { email: payload?.user?.email || email });
         registerForm.reset();
         setAuthModalOpen(false);
     } catch (error) {
+        console.warn('[auth] Registration failed.', { email, message: error.message || 'Unknown error.' });
         setRegisterError(error.message || 'Unable to create the account right now.');
     } finally {
         setAuthFormPending(registerForm, false);
@@ -1411,9 +1418,11 @@ async function submitLoginForm(event) {
             body: JSON.stringify({ email, password })
         });
         setAuthenticatedUser(payload?.user || null);
+        console.info('[auth] Login succeeded.', { email: payload?.user?.email || email });
         loginForm.reset();
         setAuthModalOpen(false);
     } catch (error) {
+        console.warn('[auth] Login failed.', { email, message: error.message || 'Unknown error.' });
         setLoginError(error.message || 'Unable to log in right now.');
     } finally {
         setAuthFormPending(loginForm, false);
@@ -4430,6 +4439,12 @@ if (openAccountBtn) {
     openAccountBtn.addEventListener('click', () => setAuthModalView('account'));
 }
 
+if (openPremiumBtn) {
+    openPremiumBtn.addEventListener('click', () => {
+        openUpgradeModal();
+    });
+}
+
 if (logoutBtn) {
     logoutBtn.addEventListener('click', () => {
         void logoutCurrentAccount();
@@ -4549,7 +4564,7 @@ handleInitialWorkspaceState();
 updateAccountUi();
 
 async function initializeAccountSession() {
-    await refreshAuthenticatedUser({ quiet: true });
+    await refreshAuthenticatedUser();
     await verifyCheckoutReturn();
     hydrateResetTokenFromUrl();
 }
