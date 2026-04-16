@@ -25,6 +25,9 @@ try:
 except ImportError:
     load_dotenv = None
 
+if load_dotenv is not None:
+    load_dotenv()
+
 try:
     from openai import OpenAI
 except ImportError:
@@ -95,6 +98,7 @@ CHAT_API_PATH = '/api/chat'
 CHECKOUT_SESSION_API_PATH = '/api/create-checkout-session'
 CHECKOUT_SESSION_STATUS_API_PATH = '/api/checkout-session-status'
 STRIPE_WEBHOOK_API_PATH = '/api/stripe-webhook'
+LEGACY_STRIPE_WEBHOOK_API_PATHS = {'/api/stripe/webhook'}
 AUTH_ME_API_PATH = '/api/auth/me'
 AUTH_REGISTER_API_PATH = '/api/auth/register'
 AUTH_LOGIN_API_PATH = '/api/auth/login'
@@ -163,6 +167,12 @@ PASSWORD_HASH_ITERATIONS = 310000
 DATABASE_PATH_ENV_VAR = 'APP_DB_PATH'
 PREMIUM_WHITELIST_ENV_VAR = 'PREMIUM_WHITELIST_EMAILS'
 STRIPE_WEBHOOK_SECRET_ENV_VAR = 'STRIPE_WEBHOOK_SECRET'
+SMTP_SERVER_ENV_VARS = ('SMTP_SERVER', 'SMTP_HOST')
+SMTP_PORT_ENV_VAR = 'SMTP_PORT'
+SMTP_USERNAME_ENV_VAR = 'SMTP_USERNAME'
+SMTP_PASSWORD_ENV_VAR = 'SMTP_PASSWORD'
+SMTP_FROM_EMAIL_ENV_VARS = ('EMAIL_FROM', 'SMTP_FROM_EMAIL')
+SMTP_USE_TLS_ENV_VAR = 'SMTP_USE_TLS'
 PROFILE_IMAGE_MAX_BYTES = 128 * 1024
 PROFILE_IMAGE_DATA_URL_PREFIX = 'data:image/png;base64,'
 EMAIL_PATTERN = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
@@ -777,6 +787,19 @@ def build_public_user_payload(user_row: sqlite3.Row) -> dict[str, object]:
     }
 
 
+def build_profile_image_debug_summary(profile_image_url: object, profile_image_version: object = None) -> str:
+    normalized_image_url = str(profile_image_url or '').strip()
+    normalized_version = str(profile_image_version or '').strip()
+    if not normalized_image_url:
+        return 'present=no'
+    image_kind = 'data-url' if normalized_image_url.startswith('data:') else 'url'
+    preview = normalized_image_url[:32]
+    return (
+        f'present=yes kind={image_kind} length={len(normalized_image_url)} '
+        f'version={normalized_version or "none"} preview={preview!r}'
+    )
+
+
 def validate_profile_image_data_url(image_data_url: str) -> str:
     normalized_data_url = str(image_data_url or '').strip()
     if not normalized_data_url:
@@ -965,15 +988,32 @@ def logout_user_account(session_token: str | None) -> None:
         connection.close()
 
 
+def get_first_configured_env_value(*env_var_names: str) -> str:
+    load_local_env_files()
+    for env_var_name in env_var_names:
+        value = (os.environ.get(env_var_name) or '').strip()
+        if value:
+            return value
+    return ''
+
+
+def get_smtp_server() -> str:
+    return get_first_configured_env_value(*SMTP_SERVER_ENV_VARS)
+
+
+def get_smtp_from_email() -> str:
+    return get_first_configured_env_value(*SMTP_FROM_EMAIL_ENV_VARS)
+
+
 def get_smtp_port() -> int | None:
-    raw_value = (os.environ.get('SMTP_PORT') or '').strip()
+    raw_value = (os.environ.get(SMTP_PORT_ENV_VAR) or '').strip()
     if not raw_value:
         return None
 
     try:
         return int(raw_value)
     except ValueError as error:
-        raise RuntimeError('SMTP_PORT must be a valid integer.') from error
+        raise RuntimeError(f'{SMTP_PORT_ENV_VAR} must be a valid integer.') from error
 
 
 def is_truthy_env_value(value: str | None, *, default: bool = False) -> bool:
@@ -983,22 +1023,26 @@ def is_truthy_env_value(value: str | None, *, default: bool = False) -> bool:
 
 
 def is_smtp_configured() -> bool:
-    load_local_env_files()
-    smtp_host = (os.environ.get('SMTP_HOST') or '').strip()
-    smtp_from_email = (os.environ.get('SMTP_FROM_EMAIL') or '').strip()
-    return bool(smtp_host and smtp_from_email and get_smtp_port())
+    smtp_server = get_smtp_server()
+    smtp_from_email = get_smtp_from_email()
+    smtp_username = (os.environ.get(SMTP_USERNAME_ENV_VAR) or '').strip()
+    smtp_password = os.environ.get(SMTP_PASSWORD_ENV_VAR) or ''
+    has_valid_auth_config = not (smtp_username or smtp_password) or bool(smtp_username and smtp_password)
+    return bool(smtp_server and smtp_from_email and get_smtp_port() and has_valid_auth_config)
 
 
 def send_password_reset_email(email: str, reset_url: str) -> None:
-    smtp_host = (os.environ.get('SMTP_HOST') or '').strip()
+    smtp_host = get_smtp_server()
     smtp_port = get_smtp_port()
-    smtp_username = (os.environ.get('SMTP_USERNAME') or '').strip()
-    smtp_password = os.environ.get('SMTP_PASSWORD') or ''
-    smtp_from_email = (os.environ.get('SMTP_FROM_EMAIL') or '').strip()
-    smtp_use_tls = is_truthy_env_value(os.environ.get('SMTP_USE_TLS'), default=True)
+    smtp_username = (os.environ.get(SMTP_USERNAME_ENV_VAR) or '').strip()
+    smtp_password = os.environ.get(SMTP_PASSWORD_ENV_VAR) or ''
+    smtp_from_email = get_smtp_from_email()
+    smtp_use_tls = is_truthy_env_value(os.environ.get(SMTP_USE_TLS_ENV_VAR), default=True)
 
     if not smtp_host or not smtp_port or not smtp_from_email:
         raise RuntimeError('SMTP is not fully configured.')
+    if (smtp_username or smtp_password) and not (smtp_username and smtp_password):
+        raise RuntimeError('SMTP credentials are incomplete.')
 
     message = EmailMessage()
     message['Subject'] = 'Reset your Photosynthesizer password'
@@ -1262,14 +1306,18 @@ def resolve_checkout_user(
 ) -> sqlite3.Row | None:
     user_id = read_stripe_user_id_from_metadata(checkout_session)
     if user_id is not None:
+        print(f"[webhook] matching by metadata.user_id={user_id}")
         user_row = get_user_by_id(connection, user_id)
         if user_row is not None:
+            print(f"[webhook] matched user id={int(user_row['id'])}")
             return user_row
 
     client_reference_id = read_stripe_string(checkout_session, 'client_reference_id')
     if client_reference_id.isdigit():
+        print(f"[webhook] matching by client_reference_id={client_reference_id}")
         user_row = get_user_by_id(connection, int(client_reference_id))
         if user_row is not None:
+            print(f"[webhook] matched user id={int(user_row['id'])}")
             return user_row
 
     customer_email = read_stripe_string(checkout_session, 'customer_email')
@@ -1279,20 +1327,26 @@ def resolve_checkout_user(
         except ApiError:
             normalized_email = ''
         if normalized_email:
+            print(f"[webhook] matching by customer_email={normalized_email}")
             user_row = get_user_by_email(connection, normalized_email)
             if user_row is not None:
+                print(f"[webhook] matched user id={int(user_row['id'])}")
                 return user_row
 
     metadata_email = read_stripe_email_from_metadata(checkout_session)
     if metadata_email:
+        print(f"[webhook] matching by metadata.email={metadata_email}")
         user_row = get_user_by_email(connection, metadata_email)
         if user_row is not None:
+            print(f"[webhook] matched user id={int(user_row['id'])}")
             return user_row
 
     customer_id = read_stripe_string(checkout_session, 'customer')
     if customer_id:
+        print(f"[webhook] matching by customer_id={customer_id}")
         user_row = get_user_by_stripe_customer_id(connection, customer_id)
         if user_row is not None:
+            print(f"[webhook] matched user id={int(user_row['id'])}")
             return user_row
 
     return None
@@ -1375,20 +1429,28 @@ def update_user_subscription_record(
 def process_checkout_session_activation(
     connection: sqlite3.Connection,
     checkout_session
-) -> None:
+) -> bool:
+    session_id = read_stripe_string(checkout_session, 'id')
+    customer_details = read_stripe_field(checkout_session, 'customer_details') or {}
+    customer_email = read_stripe_string(customer_details, 'email') or read_stripe_string(checkout_session, 'customer_email')
+    client_reference_id = read_stripe_string(checkout_session, 'client_reference_id')
+    metadata = read_stripe_metadata(checkout_session)
+    print(f"[webhook] checkout.session.completed session_id={session_id}")
+    print(f"[webhook] email={customer_email}")
+    print(f"[webhook] client_reference_id={client_reference_id}")
+    print(f"[webhook] metadata={metadata}")
+
     user_row = resolve_checkout_user(connection, checkout_session)
     if user_row is None:
-        session_id = read_stripe_string(checkout_session, 'id')
+        print("[webhook] no matching user found")
         log_billing_event(f'No user match found for completed checkout session {session_id}.')
-        return
+        return False
 
     purchase_type = resolve_checkout_purchase_type(checkout_session)
     if purchase_type not in SUPPORTED_CHECKOUT_PURCHASE_TYPES:
-        session_id = read_stripe_string(checkout_session, 'id')
         log_billing_event(f'Ignoring checkout session {session_id} with unsupported purchase type {purchase_type!r}.')
-        return
+        return False
 
-    session_id = read_stripe_string(checkout_session, 'id')
     payment_status = read_stripe_string(checkout_session, 'payment_status')
     checkout_status = read_stripe_string(checkout_session, 'status')
     stripe_customer_id = read_stripe_string(checkout_session, 'customer') or None
@@ -1398,14 +1460,15 @@ def process_checkout_session_activation(
         log_billing_event(
             f'Skipping lifetime unlock activation for checkout session {session_id} because payment_status={payment_status!r}.'
         )
-        return
+        return False
 
     if purchase_type == 'monthly_subscription' and checkout_status != 'complete':
         log_billing_event(
             f'Skipping subscription activation for checkout session {session_id} because checkout_status={checkout_status!r}.'
         )
-        return
+        return False
 
+    print("[webhook] attempting premium update")
     apply_checkout_to_user_account(
         connection,
         session_id=session_id,
@@ -1416,6 +1479,7 @@ def process_checkout_session_activation(
         stripe_customer_id=stripe_customer_id,
         stripe_subscription_id=stripe_subscription_id
     )
+    return True
 
 
 def process_subscription_status_event(
@@ -1452,16 +1516,20 @@ def handle_verified_stripe_webhook(raw_body: bytes, signature_header: str | None
     except ValueError as error:
         raise ApiError(HTTPStatus.BAD_REQUEST, 'Invalid Stripe webhook payload.') from error
     except Exception as error:
+        if error.__class__.__name__ == 'SignatureVerificationError':
+            print("[webhook] Signature verification failed")
         raise ApiError(HTTPStatus.BAD_REQUEST, get_error_message(error)) from error
 
     event_id = read_stripe_string(event, 'id')
     event_type = read_stripe_string(event, 'type')
+    print(f"[webhook] verified event type={event['type']}")
     event_object = read_stripe_field(read_stripe_field(event, 'data') or {}, 'object')
     if not event_id or not event_type:
         raise ApiError(HTTPStatus.BAD_REQUEST, 'Stripe webhook payload is missing an id or type.')
 
     connection = get_database_connection()
     try:
+        premium_update_applied = False
         is_duplicate = not mark_stripe_webhook_event_processed(connection, event_id, event_type)
         if is_duplicate:
             log_billing_event(
@@ -1469,11 +1537,13 @@ def handle_verified_stripe_webhook(raw_body: bytes, signature_header: str | None
             )
 
         if event_type in {'checkout.session.completed', 'checkout.session.async_payment_succeeded'}:
-            process_checkout_session_activation(connection, event_object)
+            premium_update_applied = process_checkout_session_activation(connection, event_object)
         elif event_type in {'customer.subscription.updated', 'customer.subscription.deleted'}:
             process_subscription_status_event(connection, event_object)
 
         connection.commit()
+        if premium_update_applied:
+            print("[webhook] premium update committed")
     except Exception:
         connection.rollback()
         raise
@@ -1784,7 +1854,8 @@ def create_checkout_session(
     metadata = {
         'purchase_type': purchase_type,
         'user_id': str(synced_user['id']),
-        'user_email': str(synced_user['email'])
+        'user_email': str(synced_user['email']),
+        'email': str(synced_user['email'])
     }
     mode = checkout_config['mode']
     session_kwargs = {
@@ -1825,6 +1896,7 @@ def create_checkout_session(
         raise RuntimeError('Stripe Checkout session was created without a usable redirect URL.')
 
     log_billing_event(f'Checkout session created successfully. session_id={session_id}')
+    print(f"[billing] checkout session created session_id={session_id} user_id={synced_user['id']}")
     return {
         'checkout_url': session_url,
         'session_id': session_id
@@ -2222,6 +2294,7 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed_path = urlparse(self.path).path
         checkout_post_paths = {CHECKOUT_SESSION_API_PATH, *LEGACY_CHECKOUT_SESSION_API_PATHS}
+        stripe_webhook_post_paths = {STRIPE_WEBHOOK_API_PATH, *LEGACY_STRIPE_WEBHOOK_API_PATHS}
         auth_post_paths = {
             AUTH_REGISTER_API_PATH,
             AUTH_LOGIN_API_PATH,
@@ -2230,7 +2303,7 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
             AUTH_RESET_PASSWORD_API_PATH,
             AUTH_PROFILE_IMAGE_API_PATH
         }
-        if parsed_path not in {CHAT_API_PATH, STRIPE_WEBHOOK_API_PATH, *checkout_post_paths, *auth_post_paths}:
+        if parsed_path not in {CHAT_API_PATH, *stripe_webhook_post_paths, *checkout_post_paths, *auth_post_paths}:
             self._send_json(HTTPStatus.NOT_FOUND, {'error': 'Route not found.'})
             return
 
@@ -2247,7 +2320,8 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
 
         raw_body = self.rfile.read(content_length) if content_length > 0 else b''
 
-        if parsed_path == STRIPE_WEBHOOK_API_PATH:
+        if parsed_path in stripe_webhook_post_paths:
+            print("[webhook] route hit")
             try:
                 response_payload = handle_verified_stripe_webhook(
                     raw_body,
@@ -2499,15 +2573,22 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
                 return
 
             if parsed_path == AUTH_PROFILE_IMAGE_API_PATH:
+                log_auth_event('portrait upload request received')
                 user_row = update_profile_image(
                     self,
                     str(payload.get('image_data_url', ''))
+                )
+                public_user_payload = build_public_user_payload(user_row)
+                log_auth_event(f"portrait save success user_id={int(user_row['id'])}")
+                log_auth_event(
+                    'returned portrait value/path '
+                    f"{build_profile_image_debug_summary(public_user_payload.get('profile_image_url'), public_user_payload.get('profile_image_version'))}"
                 )
                 self._send_json(
                     HTTPStatus.OK,
                     {
                         'message': 'Profile picture updated.',
-                        'user': build_public_user_payload(user_row)
+                        'user': public_user_payload
                     }
                 )
                 return
@@ -2560,6 +2641,7 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
         parsed_path = urlparse(self.path).path
         billing_paths = {
             STRIPE_WEBHOOK_API_PATH,
+            *LEGACY_STRIPE_WEBHOOK_API_PATHS,
             CHECKOUT_SESSION_API_PATH,
             CHECKOUT_SESSION_STATUS_API_PATH,
             *LEGACY_CHECKOUT_SESSION_API_PATHS,
@@ -2625,6 +2707,11 @@ def main() -> None:
     print(f'{DATABASE_PATH_ENV_VAR} resolved to: {get_database_path()}')
     print(f'{PREMIUM_WHITELIST_ENV_VAR} configured: {"yes" if bool(os.environ.get(PREMIUM_WHITELIST_ENV_VAR)) else "no"}')
     print(f'SMTP configured: {"yes" if is_smtp_configured() else "no"}')
+    print(f'SMTP server detected: {"yes" if bool(get_smtp_server()) else "no"}')
+    print(f'SMTP from email detected: {"yes" if bool(get_smtp_from_email()) else "no"}')
+    print(f'SMTP port detected: {"yes" if bool(get_smtp_port()) else "no"}')
+    print(f'SMTP username detected: {"yes" if bool((os.environ.get(SMTP_USERNAME_ENV_VAR) or "").strip()) else "no"}')
+    print(f'SMTP password detected: {"yes" if bool((os.environ.get(SMTP_PASSWORD_ENV_VAR) or "").strip()) else "no"}')
     print('Local development note: set OPENAI_API_KEY before starting the server.')
 
     try:
