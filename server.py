@@ -9,16 +9,16 @@ import json
 import os
 import re
 import secrets
-import smtplib
 import sqlite3
 import traceback
 from datetime import datetime, timedelta, timezone
-from email.message import EmailMessage
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
+from urllib.request import Request, urlopen
 
 try:
     from dotenv import load_dotenv
@@ -173,6 +173,8 @@ SMTP_USERNAME_ENV_VAR = 'SMTP_USERNAME'
 SMTP_PASSWORD_ENV_VAR = 'SMTP_PASSWORD'
 SMTP_FROM_EMAIL_ENV_VARS = ('EMAIL_FROM', 'SMTP_FROM_EMAIL')
 SMTP_USE_TLS_ENV_VAR = 'SMTP_USE_TLS'
+SENDGRID_API_KEY_ENV_VAR = 'SENDGRID_API_KEY'
+SENDGRID_MAIL_SEND_API_URL = 'https://api.sendgrid.com/v3/mail/send'
 PROFILE_IMAGE_MAX_BYTES = 128 * 1024
 PROFILE_IMAGE_DATA_URL_PREFIX = 'data:image/png;base64,'
 EMAIL_PATTERN = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
@@ -1031,37 +1033,114 @@ def is_smtp_configured() -> bool:
     return bool(smtp_server and smtp_from_email and get_smtp_port() and has_valid_auth_config)
 
 
-def send_password_reset_email(email: str, reset_url: str) -> None:
-    smtp_host = get_smtp_server()
-    smtp_port = get_smtp_port()
-    smtp_username = (os.environ.get(SMTP_USERNAME_ENV_VAR) or '').strip()
-    smtp_password = os.environ.get(SMTP_PASSWORD_ENV_VAR) or ''
+def summarize_sendgrid_error_response(response_body: str) -> str:
+    trimmed_body = response_body.strip()
+    if not trimmed_body:
+        return 'Empty response body.'
+
+    try:
+        payload = json.loads(trimmed_body)
+    except json.JSONDecodeError:
+        return trimmed_body
+
+    if isinstance(payload, dict):
+        errors = payload.get('errors')
+        if isinstance(errors, list):
+            messages: list[str] = []
+            for error_entry in errors:
+                if not isinstance(error_entry, dict):
+                    continue
+
+                message = str(error_entry.get('message', '')).strip()
+                if not message:
+                    continue
+
+                details = [message]
+                field = error_entry.get('field')
+                if isinstance(field, str) and field.strip():
+                    details.append(f'field={field.strip()}')
+                help_url = error_entry.get('help')
+                if isinstance(help_url, str) and help_url.strip():
+                    details.append(f'help={help_url.strip()}')
+                messages.append('; '.join(details))
+
+            if messages:
+                return ' | '.join(messages)
+
+    return trimmed_body
+
+
+def send_password_reset_email(email: str, reset_url: str) -> bool:
+    sendgrid_api_key = (os.environ.get(SENDGRID_API_KEY_ENV_VAR) or '').strip()
     smtp_from_email = get_smtp_from_email()
-    smtp_use_tls = is_truthy_env_value(os.environ.get(SMTP_USE_TLS_ENV_VAR), default=True)
 
-    if not smtp_host or not smtp_port or not smtp_from_email:
-        raise RuntimeError('SMTP is not fully configured.')
-    if (smtp_username or smtp_password) and not (smtp_username and smtp_password):
-        raise RuntimeError('SMTP credentials are incomplete.')
+    if not sendgrid_api_key:
+        log_auth_event('Password reset email not sent because SENDGRID_API_KEY is not configured.')
+        return False
+    if not smtp_from_email:
+        log_auth_event('Password reset email not sent because the sender email is not configured.')
+        return False
 
-    message = EmailMessage()
-    message['Subject'] = 'Reset your Photosynthesizer password'
-    message['From'] = smtp_from_email
-    message['To'] = email
-    message.set_content(
+    message_text = (
         'Use this link to reset your password:\n'
         f'{reset_url}\n\n'
         f'This link expires in {PASSWORD_RESET_TOKEN_TTL_MINUTES} minutes.'
     )
+    request_body = json.dumps(
+        {
+            'personalizations': [
+                {
+                    'to': [{'email': email}]
+                }
+            ],
+            'from': {'email': smtp_from_email},
+            'subject': 'Reset your Photosynthesizer password',
+            'content': [
+                {
+                    'type': 'text/plain',
+                    'value': message_text
+                }
+            ]
+        }
+    ).encode('utf-8')
+    request = Request(
+        SENDGRID_MAIL_SEND_API_URL,
+        data=request_body,
+        headers={
+            'Authorization': f'Bearer {sendgrid_api_key}',
+            'Content-Type': 'application/json'
+        },
+        method='POST'
+    )
 
-    with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as smtp_client:
-        smtp_client.ehlo()
-        if smtp_use_tls:
-            smtp_client.starttls()
-            smtp_client.ehlo()
-        if smtp_username:
-            smtp_client.login(smtp_username, smtp_password)
-        smtp_client.send_message(message)
+    try:
+        with urlopen(request, timeout=20) as response:
+            status_code = getattr(response, 'status', response.getcode())
+            response_body = response.read().decode('utf-8', errors='replace')
+        if 200 <= status_code < 300:
+            return True
+
+        log_auth_event(
+            f'SendGrid API returned unexpected status {status_code} while sending password reset email '
+            f'to {email}: {summarize_sendgrid_error_response(response_body)}'
+        )
+    except HTTPError as error:
+        response_body = error.read().decode('utf-8', errors='replace')
+        log_auth_event(
+            f'SendGrid API failed while sending password reset email to {email}. '
+            f'Status {error.code}: {summarize_sendgrid_error_response(response_body)}'
+        )
+    except URLError as error:
+        log_auth_event(
+            f'SendGrid request failed while sending password reset email to {email}: {error.reason}'
+        )
+    except Exception as error:
+        log_auth_exception(
+            f'Unexpected SendGrid error while sending password reset email to {email}',
+            error
+        )
+
+    return False
 
 
 def build_password_reset_url(handler: SimpleHTTPRequestHandler, token: str) -> str:
@@ -1115,11 +1194,12 @@ def create_password_reset_request(
         connection.close()
 
     if email_delivery_configured:
-        send_password_reset_email(normalized_email, reset_url)
-        return {
-            'message': 'Password reset link sent. Check your email.',
-            'email_delivery_configured': True
-        }
+        if send_password_reset_email(normalized_email, reset_url):
+            return {
+                'message': 'Password reset link sent. Check your email.',
+                'email_delivery_configured': True
+            }
+        raise RuntimeError('Password reset email could not be sent right now.')
 
     log_auth_event(
         f'Password reset email requested for {normalized_email}, but SMTP is not configured. '
