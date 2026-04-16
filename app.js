@@ -140,6 +140,7 @@ const LIFETIME_UNLOCK_STORAGE_KEY = 'photosynthesizer_lifetime_unlock';
 const FILE_MODE_SESSION_TOKEN_STORAGE_KEY = 'photosynthesizer_file_mode_session_token';
 const API_SESSION_HEADER_NAME = 'X-Blueprint-Session';
 const PREMIUM_SIZE_LONG_SIDE_THRESHOLD = 128;
+const LOCKED_PREVIEW_TARGET_RENDER_SIDE = 768;
 const AUTH_EMAIL_ERROR_MESSAGE = 'Invalid email.';
 const AUTH_DUPLICATE_EMAIL_MESSAGE = 'An account with this email already exists.';
 const AUTH_PASSWORD_REQUIRED_MESSAGE = 'Enter your password.';
@@ -174,6 +175,7 @@ let sectionStatuses = {};
 let selectedSection = null;
 let currentViewMode = 'full';
 let currentImageSource = null;
+let latestUploadedImageSource = null;
 let buildModeEnabled = false;
 let currentBuildRowIndex = 0;
 let comparisonModeEnabled = false;
@@ -196,6 +198,8 @@ let hoveredFocusedSectionCell = null;
 let currentBlueprintSizeOptions = [];
 let lastUnlockedSizeValue = sizeSelector.value;
 let pendingPremiumSizeOption = null;
+const lockedPreviewTeaserCache = new Map();
+let lockedPreviewRenderToken = 0;
 const sessionSectionProgress = new Map();
 const chatState = {
     isOpen: false,
@@ -432,6 +436,164 @@ function getPremiumPreviewOptionByLongSide(longSide) {
     };
 }
 
+function clearLockedPreviewTeaserCache() {
+    lockedPreviewTeaserCache.clear();
+    lockedPreviewRenderToken += 1;
+}
+
+function getLockedPreviewImageSource() {
+    if (typeof latestUploadedImageSource === 'string' && latestUploadedImageSource.trim()) {
+        return latestUploadedImageSource;
+    }
+
+    if (typeof currentImageSource === 'string' && currentImageSource.trim()) {
+        return currentImageSource;
+    }
+
+    return '';
+}
+
+function setLockedSizePreviewPlaceholder(message) {
+    if (lockedSizePreviewImage instanceof HTMLImageElement) {
+        lockedSizePreviewImage.hidden = true;
+        lockedSizePreviewImage.removeAttribute('src');
+    }
+
+    if (lockedSizePreviewPlaceholder instanceof HTMLElement) {
+        lockedSizePreviewPlaceholder.hidden = false;
+        lockedSizePreviewPlaceholder.textContent = message;
+    }
+}
+
+function loadImageElementFromSource(imageSource) {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.decoding = 'async';
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('Unable to load the selected image.'));
+        image.src = imageSource;
+    });
+}
+
+function buildResizedPixelGridFromImageElement(image, gridWidth, gridHeight) {
+    const resizedCanvas = document.createElement('canvas');
+    resizedCanvas.width = gridWidth;
+    resizedCanvas.height = gridHeight;
+
+    const resizedCtx = resizedCanvas.getContext('2d');
+    if (!resizedCtx) {
+        throw new Error('Unable to prepare the blueprint preview canvas.');
+    }
+
+    const sourceWidth = image.naturalWidth || image.width || gridWidth;
+    const sourceHeight = image.naturalHeight || image.height || gridHeight;
+    const isDownsampling = sourceWidth > gridWidth || sourceHeight > gridHeight;
+
+    resizedCtx.imageSmoothingEnabled = isDownsampling;
+    resizedCtx.imageSmoothingQuality = isDownsampling ? 'high' : 'medium';
+    resizedCtx.drawImage(image, 0, 0, gridWidth, gridHeight);
+
+    let imageData = resizedCtx.getImageData(0, 0, gridWidth, gridHeight);
+    imageData = enhanceResizedImageData(imageData);
+    resizedCtx.putImageData(imageData, 0, 0);
+
+    const data = imageData.data;
+    const grid = [];
+
+    for (let y = 0; y < gridHeight; y++) {
+        const row = [];
+        for (let x = 0; x < gridWidth; x++) {
+            const index = (y * gridWidth + x) * 4;
+            row.push({
+                x,
+                y,
+                r: data[index],
+                g: data[index + 1],
+                b: data[index + 2],
+                a: data[index + 3]
+            });
+        }
+        grid.push(row);
+    }
+
+    return { grid, resizedCanvas };
+}
+
+function createLockedBlueprintPreviewDataUrl(blueprint, option) {
+    const maxSide = Math.max(option.width, option.height);
+    const cellSize = Math.max(2, Math.floor(LOCKED_PREVIEW_TARGET_RENDER_SIDE / Math.max(1, maxSide)));
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = option.width * cellSize;
+    previewCanvas.height = option.height * cellSize;
+
+    const previewCtx = previewCanvas.getContext('2d');
+    if (!previewCtx) {
+        throw new Error('Unable to render the premium preview.');
+    }
+
+    previewCtx.imageSmoothingEnabled = false;
+    previewCtx.fillStyle = '#f3ede3';
+    previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+
+    for (let y = 0; y < blueprint.length; y++) {
+        for (let x = 0; x < blueprint[y].length; x++) {
+            const cell = blueprint[y][x];
+            const block = minecraftBlockLookup[cell.block];
+            previewCtx.fillStyle = block ? `rgb(${block.r}, ${block.g}, ${block.b})` : '#1A1A1A';
+            previewCtx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+        }
+    }
+
+    return previewCanvas.toDataURL('image/png');
+}
+
+async function renderLockedBlueprintStylePreview(option, renderToken) {
+    const previewSource = getLockedPreviewImageSource();
+    if (!previewSource) {
+        return;
+    }
+
+    const cachedTeaser = lockedPreviewTeaserCache.get(option.value);
+    if (cachedTeaser) {
+        if (
+            renderToken !== lockedPreviewRenderToken
+            || pendingPremiumSizeOption?.value !== option.value
+            || !(lockedSizePreviewImage instanceof HTMLImageElement)
+        ) {
+            return;
+        }
+
+        lockedSizePreviewImage.src = cachedTeaser;
+        lockedSizePreviewImage.hidden = false;
+        if (lockedSizePreviewPlaceholder instanceof HTMLElement) {
+            lockedSizePreviewPlaceholder.hidden = true;
+        }
+        return;
+    }
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const image = await loadImageElementFromSource(previewSource);
+    const { grid } = buildResizedPixelGridFromImageElement(image, option.width, option.height);
+    const blueprint = buildBlueprintFromGrid(grid);
+    const teaserDataUrl = createLockedBlueprintPreviewDataUrl(blueprint, option);
+    lockedPreviewTeaserCache.set(option.value, teaserDataUrl);
+
+    if (
+        renderToken !== lockedPreviewRenderToken
+        || pendingPremiumSizeOption?.value !== option.value
+        || !(lockedSizePreviewImage instanceof HTMLImageElement)
+    ) {
+        return;
+    }
+
+    lockedSizePreviewImage.src = teaserDataUrl;
+    lockedSizePreviewImage.hidden = false;
+    if (lockedSizePreviewPlaceholder instanceof HTMLElement) {
+        lockedSizePreviewPlaceholder.hidden = true;
+    }
+}
+
 function updateLockedSizePreview(option = null) {
     const isPreviewableOption = !!option && isPremiumBlueprintSizeOption(option);
     if (!lockedSizePreviewPanel) {
@@ -440,50 +602,61 @@ function updateLockedSizePreview(option = null) {
 
     lockedSizePreviewPanel.hidden = !isPreviewableOption;
     if (!isPreviewableOption) {
-        if (lockedSizePreviewImage instanceof HTMLImageElement) {
-            lockedSizePreviewImage.hidden = true;
-            lockedSizePreviewImage.removeAttribute('src');
-        }
-        if (lockedSizePreviewPlaceholder instanceof HTMLElement) {
-            lockedSizePreviewPlaceholder.hidden = false;
-            lockedSizePreviewPlaceholder.textContent = 'Upload an image to see the premium teaser preview.';
-        }
+        lockedPreviewRenderToken += 1;
+        setLockedSizePreviewPlaceholder('Upload an image to see the premium blueprint preview.');
         return;
     }
 
+    const previewLabel = getPremiumPreviewDisplayLabel(option);
     if (lockedSizePreviewTitle) {
-        lockedSizePreviewTitle.textContent = `${getPremiumPreviewDisplayLabel(option)} Preview`;
+        lockedSizePreviewTitle.textContent = `${previewLabel} Preview`;
     }
     if (lockedSizePreviewMeta) {
         lockedSizePreviewMeta.textContent = getBlueprintOptionDimensionLabel(option);
     }
     if (lockedSizePreviewUpsell) {
         lockedSizePreviewUpsell.textContent = (
-            `${getPremiumPreviewDisplayLabel(option)} opens a ${getBlueprintOptionDimensionLabel(option)} premium build. `
-            + 'Unlock premium to open the full blueprint, focused sections, materials, and section navigation.'
+            `${previewLabel} opens a ${getBlueprintOptionDimensionLabel(option)} premium build. `
+            + 'Unlock premium to open the interactive full blueprint, focused sections, materials, and section navigation.'
         );
     }
     if (lockedSizePreviewFrame instanceof HTMLElement) {
         lockedSizePreviewFrame.style.aspectRatio = `${option.width} / ${option.height}`;
     }
 
-    const hasCurrentImage = typeof currentImageSource === 'string' && currentImageSource.trim();
+    const renderToken = ++lockedPreviewRenderToken;
+    const previewSource = getLockedPreviewImageSource();
     if (lockedSizePreviewImage instanceof HTMLImageElement) {
-        lockedSizePreviewImage.alt = `${getPremiumPreviewDisplayLabel(option)} premium teaser preview`;
-        if (hasCurrentImage) {
-            lockedSizePreviewImage.src = currentImageSource;
-            lockedSizePreviewImage.hidden = false;
-        } else {
-            lockedSizePreviewImage.hidden = true;
-            lockedSizePreviewImage.removeAttribute('src');
-        }
+        lockedSizePreviewImage.alt = `${previewLabel} premium blueprint preview`;
     }
-    if (lockedSizePreviewPlaceholder instanceof HTMLElement) {
-        lockedSizePreviewPlaceholder.hidden = hasCurrentImage;
-        if (!hasCurrentImage) {
-            lockedSizePreviewPlaceholder.textContent = `${getPremiumPreviewDisplayLabel(option)} teaser preview. Upload an image to see the premium preview frame.`;
-        }
+
+    if (!previewSource) {
+        setLockedSizePreviewPlaceholder(`${previewLabel} preview. Upload an image to see the finished full blueprint result.`);
+        return;
     }
+
+    const cachedTeaser = lockedPreviewTeaserCache.get(option.value);
+    if (cachedTeaser && lockedSizePreviewImage instanceof HTMLImageElement) {
+        lockedSizePreviewImage.src = cachedTeaser;
+        lockedSizePreviewImage.hidden = false;
+        if (lockedSizePreviewPlaceholder instanceof HTMLElement) {
+            lockedSizePreviewPlaceholder.hidden = true;
+        }
+        return;
+    }
+
+    setLockedSizePreviewPlaceholder(`Generating ${previewLabel} full blueprint preview...`);
+    renderLockedBlueprintStylePreview(option, renderToken).catch((error) => {
+        if (renderToken !== lockedPreviewRenderToken) {
+            return;
+        }
+
+        console.error('[premium] Locked size preview render failed.', {
+            size: option.value,
+            error
+        });
+        setLockedSizePreviewPlaceholder(`Unable to render the ${previewLabel} preview right now.`);
+    });
 }
 
 function getFallbackUnlockedBlueprintOption() {
@@ -547,7 +720,7 @@ function openUpgradeModal(option) {
         if (option && isPremiumBlueprintSizeOption(option)) {
             upgradeModalDescription.textContent = (
                 `${getPremiumPreviewDisplayLabel(option)} is locked behind premium access. `
-                + 'This preview stays non-buildable until premium is unlocked.'
+                + 'This preview shows the finished full blueprint image only. Unlock premium for the interactive build tools.'
             );
         } else {
             upgradeModalDescription.textContent = 'Unlock XL and Mega sizes with a monthly subscription or a lifetime unlock.';
@@ -2711,6 +2884,7 @@ function resetWorkspaceState() {
     const { width, height } = parseBlueprintSizeValue(sizeSelector.value);
 
     sessionSectionProgress.clear();
+    clearLockedPreviewTeaserCache();
     currentBlueprint = null;
     currentPixelGrid = null;
     currentGridWidth = width;
@@ -2728,6 +2902,7 @@ function resetWorkspaceState() {
     selectedSection = null;
     currentViewMode = 'full';
     currentImageSource = null;
+    latestUploadedImageSource = null;
     buildModeEnabled = false;
     currentBuildRowIndex = 0;
     comparisonModeEnabled = false;
@@ -2784,6 +2959,7 @@ function resetWorkspaceState() {
 
 function forceLocalhostIntroState() {
     currentImageSource = null;
+    latestUploadedImageSource = null;
     currentBlueprint = null;
     currentPixelGrid = null;
     if (imageUpload) {
@@ -4278,6 +4454,12 @@ function processImageSource(imageSource, options = {}) {
     const img = new Image();
 
     img.onload = () => {
+        const isNewPreviewSource = imageSource !== latestUploadedImageSource;
+        if (isNewPreviewSource) {
+            latestUploadedImageSource = imageSource;
+            clearLockedPreviewTeaserCache();
+        }
+
         currentImageOriginalWidth = img.naturalWidth || img.width || currentImageOriginalWidth;
         currentImageOriginalHeight = img.naturalHeight || img.height || currentImageOriginalHeight;
         updateBlueprintSizeOptions(currentImageOriginalWidth, currentImageOriginalHeight, sizeSelector.value);
@@ -4288,37 +4470,7 @@ function processImageSource(imageSource, options = {}) {
             return;
         }
         const { width: gridWidth, height: gridHeight } = parseBlueprintSizeValue(sizeSelector.value);
-        const resizedCanvas = document.createElement('canvas');
-        resizedCanvas.width = gridWidth;
-        resizedCanvas.height = gridHeight;
-
-        const resizedCtx = resizedCanvas.getContext('2d');
-        const isDownsampling = currentImageOriginalWidth > gridWidth || currentImageOriginalHeight > gridHeight;
-        resizedCtx.imageSmoothingEnabled = isDownsampling;
-        resizedCtx.imageSmoothingQuality = isDownsampling ? 'high' : 'medium';
-        resizedCtx.drawImage(img, 0, 0, gridWidth, gridHeight);
-
-        let imageData = resizedCtx.getImageData(0, 0, gridWidth, gridHeight);
-        imageData = enhanceResizedImageData(imageData);
-        resizedCtx.putImageData(imageData, 0, 0);
-        const data = imageData.data;
-        const grid = [];
-
-        for (let y = 0; y < gridHeight; y++) {
-            const row = [];
-            for (let x = 0; x < gridWidth; x++) {
-                const index = (y * gridWidth + x) * 4;
-                row.push({
-                    x,
-                    y,
-                    r: data[index],
-                    g: data[index + 1],
-                    b: data[index + 2],
-                    a: data[index + 3]
-                });
-            }
-            grid.push(row);
-        }
+        const { grid, resizedCanvas } = buildResizedPixelGridFromImageElement(img, gridWidth, gridHeight);
 
         setCurrentGridDimensions(gridWidth, gridHeight);
         currentPixelGrid = grid;
