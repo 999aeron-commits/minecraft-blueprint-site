@@ -9,6 +9,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -166,6 +167,8 @@ SESSION_DURATION_DAYS = 30
 PASSWORD_RESET_TOKEN_TTL_MINUTES = 60
 PASSWORD_HASH_ITERATIONS = 310000
 DATABASE_PATH_ENV_VAR = 'APP_DB_PATH'
+DATABASE_FILENAME = 'app.db'
+RAILWAY_VOLUME_MOUNT_PATH_ENV_VAR = 'RAILWAY_VOLUME_MOUNT_PATH'
 PREMIUM_WHITELIST_ENV_VAR = 'PREMIUM_WHITELIST_EMAILS'
 STRIPE_WEBHOOK_SECRET_ENV_VAR = 'STRIPE_WEBHOOK_SECRET'
 SMTP_SERVER_ENV_VARS = ('SMTP_SERVER', 'SMTP_HOST')
@@ -182,6 +185,7 @@ EMAIL_PATTERN = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 SUBSCRIPTION_ACTIVE_STATUSES = {'active', 'trialing'}
 DUPLICATE_EMAIL_ERROR_MESSAGE = 'An account with this email already exists.'
 USERS_EMAIL_UNIQUE_INDEX_NAME = 'idx_users_email_unique'
+SQLITE_DATABASE_SIDECAR_SUFFIXES = ('', '-wal', '-shm', '-journal')
 
 
 class ApiError(Exception):
@@ -339,12 +343,117 @@ def generate_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def get_database_path() -> Path:
+def resolve_filesystem_path(path: Path) -> Path:
+    return path.expanduser().resolve()
+
+
+def is_path_within(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def get_default_database_path() -> Path:
+    return resolve_filesystem_path(PROJECT_ROOT / DATABASE_FILENAME)
+
+
+def get_database_path_details() -> dict[str, object]:
     load_local_env_files()
     configured_path = (os.environ.get(DATABASE_PATH_ENV_VAR) or '').strip()
+    raw_railway_volume_mount_path = (os.environ.get(RAILWAY_VOLUME_MOUNT_PATH_ENV_VAR) or '').strip()
+    railway_volume_mount_path = (
+        resolve_filesystem_path(Path(raw_railway_volume_mount_path))
+        if raw_railway_volume_mount_path
+        else None
+    )
+
     if configured_path:
-        return Path(configured_path).expanduser()
-    return PROJECT_ROOT / 'app.db'
+        resolved_path = resolve_filesystem_path(Path(configured_path))
+        source_label = DATABASE_PATH_ENV_VAR
+    elif railway_volume_mount_path is not None:
+        resolved_path = resolve_filesystem_path(railway_volume_mount_path / DATABASE_FILENAME)
+        source_label = f'{RAILWAY_VOLUME_MOUNT_PATH_ENV_VAR}/{DATABASE_FILENAME}'
+    else:
+        resolved_path = get_default_database_path()
+        source_label = 'project default'
+
+    uses_railway_volume = (
+        railway_volume_mount_path is not None
+        and is_path_within(resolved_path, railway_volume_mount_path)
+    )
+
+    return {
+        'path': resolved_path,
+        'source_label': source_label,
+        'railway_volume_mount_path': railway_volume_mount_path,
+        'uses_railway_volume': uses_railway_volume,
+        'uses_container_local_default': source_label == 'project default'
+    }
+
+
+def build_database_path_log_message(database_details: dict[str, object]) -> str:
+    database_path = Path(database_details['path'])
+    source_label = str(database_details['source_label'])
+    railway_volume_mount_path = database_details['railway_volume_mount_path']
+
+    if railway_volume_mount_path is not None:
+        return (
+            f'Database path resolved to {database_path} '
+            f'(source={source_label}; railway_volume_mount_path={railway_volume_mount_path}).'
+        )
+
+    return f'Database path resolved to {database_path} (source={source_label}).'
+
+
+def get_database_persistence_warning(database_details: dict[str, object]) -> str | None:
+    if bool(database_details['uses_container_local_default']):
+        database_path = Path(database_details['path'])
+        return (
+            f'No {DATABASE_PATH_ENV_VAR} or {RAILWAY_VOLUME_MOUNT_PATH_ENV_VAR} detected; '
+            f'using container-local database path {database_path}. '
+            'On Railway this path will not persist across redeploys or restarts.'
+        )
+
+    return None
+
+
+def copy_sqlite_database_files(source_path: Path, target_path: Path) -> None:
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    for suffix in SQLITE_DATABASE_SIDECAR_SUFFIXES:
+        source_file = Path(f'{source_path}{suffix}')
+        if not source_file.exists():
+            continue
+
+        target_file = Path(f'{target_path}{suffix}')
+        shutil.copy2(source_file, target_file)
+
+
+def migrate_legacy_project_database_if_needed(database_details: dict[str, object]) -> None:
+    if not bool(database_details['uses_railway_volume']):
+        return
+
+    target_path = Path(database_details['path'])
+    legacy_project_database_path = get_default_database_path()
+
+    if target_path == legacy_project_database_path:
+        return
+    if target_path.exists():
+        return
+    if not legacy_project_database_path.exists():
+        return
+
+    copy_sqlite_database_files(legacy_project_database_path, target_path)
+    log_auth_event(
+        f'Migrated legacy database from {legacy_project_database_path} to {target_path} '
+        'because a Railway volume is available.'
+    )
+
+
+def get_database_path() -> Path:
+    return Path(get_database_path_details()['path'])
 
 
 def initialize_database() -> None:
@@ -353,7 +462,13 @@ def initialize_database() -> None:
     if _database_initialized:
         return
 
-    database_path = get_database_path()
+    database_details = get_database_path_details()
+    database_path = Path(database_details['path'])
+    log_auth_event(build_database_path_log_message(database_details))
+    database_persistence_warning = get_database_persistence_warning(database_details)
+    if database_persistence_warning:
+        log_auth_event(database_persistence_warning)
+    migrate_legacy_project_database_if_needed(database_details)
     database_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database_path)
     try:
@@ -3100,6 +3215,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     loaded_env_files = load_local_env_files()
+    database_details = get_database_path_details()
     initialize_database()
     server_address = ('0.0.0.0', args.port)
     httpd = ThreadingHTTPServer(server_address, AppRequestHandler)
@@ -3112,7 +3228,13 @@ def main() -> None:
     print(f'Stripe SDK available at startup: {"yes" if stripe is not None else "no"}')
     print(f'STRIPE_SECRET_KEY detected at startup: {"yes" if bool(os.environ.get("STRIPE_SECRET_KEY")) else "no"}')
     print(f'{STRIPE_WEBHOOK_SECRET_ENV_VAR} detected at startup: {"yes" if bool(os.environ.get(STRIPE_WEBHOOK_SECRET_ENV_VAR)) else "no"}')
-    print(f'{DATABASE_PATH_ENV_VAR} resolved to: {get_database_path()}')
+    print(f'Database file in use: {database_details["path"]}')
+    print(f'Database path source: {database_details["source_label"]}')
+    if database_details['railway_volume_mount_path'] is not None:
+        print(f'{RAILWAY_VOLUME_MOUNT_PATH_ENV_VAR} detected at startup: {database_details["railway_volume_mount_path"]}')
+    database_persistence_warning = get_database_persistence_warning(database_details)
+    if database_persistence_warning:
+        print(f'Database persistence warning: {database_persistence_warning}')
     print(f'{PREMIUM_WHITELIST_ENV_VAR} configured: {"yes" if bool(os.environ.get(PREMIUM_WHITELIST_ENV_VAR)) else "no"}')
     print(f'SMTP configured: {"yes" if is_smtp_configured() else "no"}')
     print(f'SMTP server detected: {"yes" if bool(get_smtp_server()) else "no"}')
