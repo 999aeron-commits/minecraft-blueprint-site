@@ -93,6 +93,7 @@ _stripe_initialized = False
 _loaded_env_files: list[str] = []
 _env_files_scanned = False
 _database_initialized = False
+_database_initialization_details: dict[str, object] | None = None
 DEFAULT_OPENAI_MODEL = 'gpt-5-mini'
 STATIC_ASSET_VERSION_PLACEHOLDER = '__STATIC_ASSET_VERSION__'
 APP_API_ORIGIN_PLACEHOLDER = '__APP_API_ORIGIN__'
@@ -169,6 +170,13 @@ PASSWORD_HASH_ITERATIONS = 310000
 DATABASE_PATH_ENV_VAR = 'APP_DB_PATH'
 DATABASE_FILENAME = 'app.db'
 RAILWAY_VOLUME_MOUNT_PATH_ENV_VAR = 'RAILWAY_VOLUME_MOUNT_PATH'
+DEFAULT_RAILWAY_DATABASE_DIRECTORY = Path('/data')
+RAILWAY_RUNTIME_ENV_VARS = (
+    'RAILWAY_PROJECT_ID',
+    'RAILWAY_ENVIRONMENT_ID',
+    'RAILWAY_SERVICE_ID',
+    'RAILWAY_DEPLOYMENT_ID'
+)
 PREMIUM_WHITELIST_ENV_VAR = 'PREMIUM_WHITELIST_EMAILS'
 STRIPE_WEBHOOK_SECRET_ENV_VAR = 'STRIPE_WEBHOOK_SECRET'
 SMTP_SERVER_ENV_VARS = ('SMTP_SERVER', 'SMTP_HOST')
@@ -186,6 +194,36 @@ SUBSCRIPTION_ACTIVE_STATUSES = {'active', 'trialing'}
 DUPLICATE_EMAIL_ERROR_MESSAGE = 'An account with this email already exists.'
 USERS_EMAIL_UNIQUE_INDEX_NAME = 'idx_users_email_unique'
 SQLITE_DATABASE_SIDECAR_SUFFIXES = ('', '-wal', '-shm', '-journal')
+AUTH_DATABASE_TABLES = (
+    'users',
+    'sessions',
+    'password_reset_tokens',
+    'stripe_purchases',
+    'stripe_webhook_events'
+)
+OPTIONAL_AUTH_TABLE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    'users': (
+        ('profile_image_data_url', 'TEXT'),
+        ('lifetime_premium_unlocked_at', 'TEXT'),
+        ('stripe_customer_id', 'TEXT'),
+        ('stripe_subscription_id', 'TEXT'),
+        ('stripe_subscription_status', 'TEXT'),
+        ('last_login_at', 'TEXT')
+    ),
+    'sessions': (
+        ('last_seen_at', 'TEXT'),
+    ),
+    'password_reset_tokens': (
+        ('used_at', 'TEXT'),
+    ),
+    'stripe_purchases': (
+        ('payment_status', 'TEXT'),
+        ('checkout_status', 'TEXT'),
+        ('stripe_customer_id', 'TEXT'),
+        ('stripe_subscription_id', 'TEXT'),
+        ('updated_at', 'TEXT')
+    )
+}
 
 
 class ApiError(Exception):
@@ -359,9 +397,19 @@ def get_default_database_path() -> Path:
     return resolve_filesystem_path(PROJECT_ROOT / DATABASE_FILENAME)
 
 
+def get_default_railway_database_path() -> Path:
+    return resolve_filesystem_path(DEFAULT_RAILWAY_DATABASE_DIRECTORY / DATABASE_FILENAME)
+
+
+def is_running_on_railway() -> bool:
+    load_local_env_files()
+    return any((os.environ.get(env_var) or '').strip() for env_var in RAILWAY_RUNTIME_ENV_VARS)
+
+
 def get_database_path_details() -> dict[str, object]:
     load_local_env_files()
     configured_path = (os.environ.get(DATABASE_PATH_ENV_VAR) or '').strip()
+    is_railway_runtime = is_running_on_railway()
     raw_railway_volume_mount_path = (os.environ.get(RAILWAY_VOLUME_MOUNT_PATH_ENV_VAR) or '').strip()
     railway_volume_mount_path = (
         resolve_filesystem_path(Path(raw_railway_volume_mount_path))
@@ -375,11 +423,14 @@ def get_database_path_details() -> dict[str, object]:
     elif railway_volume_mount_path is not None:
         resolved_path = resolve_filesystem_path(railway_volume_mount_path / DATABASE_FILENAME)
         source_label = f'{RAILWAY_VOLUME_MOUNT_PATH_ENV_VAR}/{DATABASE_FILENAME}'
+    elif is_railway_runtime:
+        resolved_path = get_default_railway_database_path()
+        source_label = f'Railway default {resolved_path}'
     else:
         resolved_path = get_default_database_path()
-        source_label = 'project default'
+        source_label = 'project local development default'
 
-    uses_railway_volume = (
+    uses_persistent_volume_storage = (
         railway_volume_mount_path is not None
         and is_path_within(resolved_path, railway_volume_mount_path)
     )
@@ -387,9 +438,11 @@ def get_database_path_details() -> dict[str, object]:
     return {
         'path': resolved_path,
         'source_label': source_label,
+        'is_railway_runtime': is_railway_runtime,
         'railway_volume_mount_path': railway_volume_mount_path,
-        'uses_railway_volume': uses_railway_volume,
-        'uses_container_local_default': source_label == 'project default'
+        'uses_persistent_volume_storage': uses_persistent_volume_storage,
+        'uses_railway_default_path': is_railway_runtime and resolved_path == get_default_railway_database_path(),
+        'uses_container_local_default': (not is_railway_runtime) and source_label == 'project local development default'
     }
 
 
@@ -416,6 +469,14 @@ def get_database_persistence_warning(database_details: dict[str, object]) -> str
             'On Railway this path will not persist across redeploys or restarts.'
         )
 
+    if bool(database_details['is_railway_runtime']) and not bool(database_details['uses_persistent_volume_storage']):
+        database_path = Path(database_details['path'])
+        return (
+            f'Railway runtime detected, but {RAILWAY_VOLUME_MOUNT_PATH_ENV_VAR} is not available for {database_path}. '
+            'Attach a Railway volume and mount it to /data, or set APP_DB_PATH to a mounted volume path, '
+            'so account and premium data survive redeploys.'
+        )
+
     return None
 
 
@@ -431,48 +492,99 @@ def copy_sqlite_database_files(source_path: Path, target_path: Path) -> None:
         shutil.copy2(source_file, target_file)
 
 
-def migrate_legacy_project_database_if_needed(database_details: dict[str, object]) -> None:
-    if not bool(database_details['uses_railway_volume']):
-        return
-
+def migrate_legacy_project_database_if_needed(database_details: dict[str, object]) -> bool:
     target_path = Path(database_details['path'])
     legacy_project_database_path = get_default_database_path()
 
     if target_path == legacy_project_database_path:
-        return
+        return False
     if target_path.exists():
-        return
+        return False
     if not legacy_project_database_path.exists():
-        return
+        return False
+    if not (
+        bool(database_details['uses_persistent_volume_storage'])
+        or bool(database_details['uses_railway_default_path'])
+    ):
+        return False
 
     copy_sqlite_database_files(legacy_project_database_path, target_path)
     log_auth_event(
         f'Migrated legacy database from {legacy_project_database_path} to {target_path} '
-        'because a Railway volume is available.'
+        'because a Railway database path was selected.'
     )
+    return True
 
 
 def get_database_path() -> Path:
     return Path(get_database_path_details()['path'])
 
 
-def initialize_database() -> None:
-    global _database_initialized
+def open_database_connection(
+    database_path: Path,
+    *,
+    row_factory: type[sqlite3.Row] | None = sqlite3.Row
+) -> sqlite3.Connection:
+    connection = sqlite3.connect(database_path)
+    if row_factory is not None:
+        connection.row_factory = row_factory
+    connection.execute('PRAGMA foreign_keys = ON')
+    return connection
+
+
+def get_existing_table_names(connection: sqlite3.Connection) -> set[str]:
+    return {
+        str(row[0]).strip().lower()
+        for row in connection.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+            """
+        ).fetchall()
+    }
+
+
+def ensure_auth_schema_columns(connection: sqlite3.Connection) -> list[str]:
+    added_columns: list[str] = []
+    for table_name, columns in OPTIONAL_AUTH_TABLE_COLUMNS.items():
+        for column_name, column_definition in columns:
+            if ensure_table_column(connection, table_name, column_name, column_definition):
+                added_columns.append(f'{table_name}.{column_name}')
+    return added_columns
+
+
+def initialize_database() -> dict[str, object]:
+    global _database_initialized, _database_initialization_details
 
     if _database_initialized:
-        return
+        return dict(_database_initialization_details or {})
 
     database_details = get_database_path_details()
     database_path = Path(database_details['path'])
     log_auth_event(build_database_path_log_message(database_details))
+    log_auth_event(
+        f'Persistent volume storage active: '
+        f'{"yes" if bool(database_details["uses_persistent_volume_storage"]) else "no"}.'
+    )
     database_persistence_warning = get_database_persistence_warning(database_details)
     if database_persistence_warning:
         log_auth_event(database_persistence_warning)
-    migrate_legacy_project_database_if_needed(database_details)
+    migrated_legacy_database = migrate_legacy_project_database_if_needed(database_details)
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(database_path)
+    existing_database_found = database_path.exists()
+    log_auth_event(
+        f'Existing database found before schema initialization: '
+        f'{"yes" if existing_database_found else "no"}.'
+    )
+    connection = open_database_connection(database_path)
     try:
-        connection.execute('PRAGMA foreign_keys = ON')
+        existing_tables_before_init = get_existing_table_names(connection)
+        missing_tables = [
+            table_name
+            for table_name in AUTH_DATABASE_TABLES
+            if table_name not in existing_tables_before_init
+        ]
         connection.executescript(
             '''
             CREATE TABLE IF NOT EXISTS users (
@@ -529,7 +641,12 @@ def initialize_database() -> None:
                 event_type TEXT NOT NULL,
                 processed_at TEXT NOT NULL
             );
-
+            '''
+        )
+        added_columns = ensure_auth_schema_columns(connection)
+        normalize_and_enforce_user_email_uniqueness(connection)
+        connection.executescript(
+            '''
             CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
             CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
@@ -537,22 +654,44 @@ def initialize_database() -> None:
             CREATE INDEX IF NOT EXISTS idx_stripe_purchases_user_id ON stripe_purchases(user_id);
             '''
         )
-        ensure_table_column(connection, 'users', 'profile_image_data_url', 'TEXT')
-        normalize_and_enforce_user_email_uniqueness(connection)
         connection.commit()
     finally:
         connection.close()
 
+    if missing_tables or added_columns:
+        schema_update_parts = []
+        if missing_tables:
+            schema_update_parts.append(f'created missing tables: {", ".join(missing_tables)}')
+        if added_columns:
+            schema_update_parts.append(f'added missing columns: {", ".join(added_columns)}')
+        schema_status = '; '.join(schema_update_parts)
+        log_auth_event(
+            f'Auth schema initialized without overwriting existing data ({schema_status}).'
+        )
+    else:
+        schema_status = 'no schema changes required'
+        log_auth_event('Auth schema already present; verified without overwriting existing data.')
+
+    if migrated_legacy_database:
+        log_auth_event('Legacy project database content was copied into the resolved database path before initialization.')
+
+    _database_initialization_details = {
+        'database_details': database_details,
+        'database_path': database_path,
+        'existing_database_found': existing_database_found,
+        'migrated_legacy_database': migrated_legacy_database,
+        'missing_tables': missing_tables,
+        'added_columns': added_columns,
+        'schema_status': schema_status
+    }
     _database_initialized = True
-    log_auth_event(f'Database initialized at {database_path}.')
+    log_auth_event(f'Database ready at {database_path}.')
+    return dict(_database_initialization_details)
 
 
 def get_database_connection() -> sqlite3.Connection:
     initialize_database()
-    connection = sqlite3.connect(get_database_path())
-    connection.row_factory = sqlite3.Row
-    connection.execute('PRAGMA foreign_keys = ON')
-    return connection
+    return open_database_connection(get_database_path())
 
 
 def ensure_table_column(
@@ -560,14 +699,15 @@ def ensure_table_column(
     table_name: str,
     column_name: str,
     column_definition: str
-) -> None:
+) -> bool:
     existing_columns = {
         str(row[1]).strip().lower()
         for row in connection.execute(f'PRAGMA table_info({table_name})').fetchall()
     }
     if column_name.strip().lower() in existing_columns:
-        return
+        return False
     connection.execute(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}')
+    return True
 
 
 def normalize_stored_email_value(email: object) -> str:
@@ -3215,8 +3355,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     loaded_env_files = load_local_env_files()
-    database_details = get_database_path_details()
-    initialize_database()
+    database_initialization = initialize_database()
+    database_details = dict(database_initialization.get('database_details', get_database_path_details()))
     server_address = ('0.0.0.0', args.port)
     httpd = ThreadingHTTPServer(server_address, AppRequestHandler)
     print(f'Serving app on port {args.port} (bound to {server_address[0]}).')
@@ -3230,6 +3370,23 @@ def main() -> None:
     print(f'{STRIPE_WEBHOOK_SECRET_ENV_VAR} detected at startup: {"yes" if bool(os.environ.get(STRIPE_WEBHOOK_SECRET_ENV_VAR)) else "no"}')
     print(f'Database file in use: {database_details["path"]}')
     print(f'Database path source: {database_details["source_label"]}')
+    print(f'Railway runtime detected at startup: {"yes" if bool(database_details["is_railway_runtime"]) else "no"}')
+    print(
+        f'Persistent volume storage active at startup: '
+        f'{"yes" if bool(database_details["uses_persistent_volume_storage"]) else "no"}'
+    )
+    print(
+        f'Existing database found at startup: '
+        f'{"yes" if bool(database_initialization.get("existing_database_found")) else "no"}'
+    )
+    print(
+        f'Database schema startup result: '
+        f'{database_initialization.get("schema_status", "unknown")}'
+    )
+    print(
+        f'Legacy project database migrated at startup: '
+        f'{"yes" if bool(database_initialization.get("migrated_legacy_database")) else "no"}'
+    )
     if database_details['railway_volume_mount_path'] is not None:
         print(f'{RAILWAY_VOLUME_MOUNT_PATH_ENV_VAR} detected at startup: {database_details["railway_volume_mount_path"]}')
     database_persistence_warning = get_database_persistence_warning(database_details)
