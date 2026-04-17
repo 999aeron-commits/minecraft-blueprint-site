@@ -3302,7 +3302,7 @@ function updateHighlight() {
     }
 
     const selector = `[data-x="${activeBlock.x}"][data-y="${activeBlock.y}"]`;
-    lastHighlightedCells = Array.from(document.querySelectorAll(selector));
+    lastHighlightedCells = Array.from(focusedSectionGridDiv.querySelectorAll(selector));
     lastHighlightedCells.forEach((cell) => {
         cell.classList.add('selected-cell');
     });
@@ -3440,7 +3440,8 @@ function buildCellMarkup(cell, options) {
     cellStyle = `background-color:${color};width:${options.cellSize}px;height:${options.cellSize}px;font-size:${fontSize}px;--grid-line-width:${gridLineWidth}px;--section-line-width:${sectionLineWidth}px;--active-edge-width:${activeEdgeWidth}px;--selected-border-width:${selectedBorderWidth}px;--selected-outline-width:${selectedOutlineWidth}px;--build-outline-width:${buildOutlineWidth}px;`;
     cellText = options.showLabelsInColorView && options.cellSize >= 18 ? shortLabel : '';
 
-    return `<div class="${classes.join(' ')}" data-x="${cell.x}" data-y="${cell.y}" data-section="${sectionLabel}" data-block="${cell.block}" style="${cellStyle}" title="${cell.block}">${cellText}${overlay}</div>`;
+    const titleAttribute = options.isFocusedViewer ? ` title="${cell.block}"` : '';
+    return `<div class="${classes.join(' ')}" data-x="${cell.x}" data-y="${cell.y}" data-section="${sectionLabel}" data-block="${cell.block}" style="${cellStyle}"${titleAttribute}>${cellText}${overlay}</div>`;
 }
 
 function attachGridEvents(container) {
