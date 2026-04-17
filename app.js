@@ -4012,6 +4012,7 @@ function renderBlueprintViewport(target, cells, options = {}) {
         hideOriginOverlapLabels: !!options.hideOriginOverlapLabels,
         isFocusedViewer: !!options.isFocusedViewer,
         invertedBlockName: options.invertedBlockName || null,
+        interactionMode: options.interactionMode || 'cell-select',
         selectedBounds: options.selectedBounds || null,
         showLabelsInColorView: true,
         rows,
