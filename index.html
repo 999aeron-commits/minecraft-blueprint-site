@@ -232,6 +232,19 @@
                                 <div class="focus-status" id="focusedSectionStatus">Status: --</div>
                             </div>
                         </div>
+                        <div class="focus-selected-block-bar" id="focusSelectedBlockBar" data-state="empty">
+                            <div class="focus-selected-block-preview-slot" id="focusedBlockPreviewSlot" data-state="empty" aria-hidden="true">
+                                <div class="focused-block-preview" id="focusedBlockPreview" hidden>
+                                    <span class="focused-block-face focused-block-face-top"></span>
+                                    <span class="focused-block-face focused-block-face-left"></span>
+                                    <span class="focused-block-face focused-block-face-right"></span>
+                                </div>
+                            </div>
+                            <div class="focus-selected-block-copy">
+                                <div class="focus-selected-block-caption">Selected Block</div>
+                                <div class="focus-selected-block-name" id="focusedBlockName" aria-live="polite">Select a block to inspect</div>
+                            </div>
+                        </div>
                         <div class="focus-nav">
                             <button id="prevSectionBtn" type="button">Previous Section</button>
                             <button id="nextSectionBtn" type="button">Next Section</button>

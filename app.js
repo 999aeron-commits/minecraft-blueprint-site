@@ -21,6 +21,10 @@ const blueprintLegendInfo = document.getElementById('blueprintLegendInfo');
 const focusedSectionLabel = document.getElementById('focusedSectionLabel');
 const focusedSectionSize = document.getElementById('focusedSectionSize');
 const focusedSectionStatus = document.getElementById('focusedSectionStatus');
+const focusSelectedBlockBar = document.getElementById('focusSelectedBlockBar');
+const focusedBlockPreviewSlot = document.getElementById('focusedBlockPreviewSlot');
+const focusedBlockPreview = document.getElementById('focusedBlockPreview');
+const focusedBlockName = document.getElementById('focusedBlockName');
 const currentSectionBadge = document.getElementById('currentSectionBadge');
 const prevSectionBtn = document.getElementById('prevSectionBtn');
 const nextSectionBtn = document.getElementById('nextSectionBtn');
@@ -2793,6 +2797,37 @@ function getBlockColorByName(blockName) {
     const block = minecraftBlockLookup[blockName];
     return block ? `rgb(${block.r}, ${block.g}, ${block.b})` : '#1A1A1A';
 }
+
+function clampColorChannel(value) {
+    return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function mixRgbColors(source, target, amount) {
+    return {
+        r: clampColorChannel(source.r + ((target.r - source.r) * amount)),
+        g: clampColorChannel(source.g + ((target.g - source.g) * amount)),
+        b: clampColorChannel(source.b + ((target.b - source.b) * amount))
+    };
+}
+
+function formatRgbColorValue(color) {
+    return `rgb(${color.r}, ${color.g}, ${color.b})`;
+}
+
+function getFocusedBlockPreviewFaceColors(blockName) {
+    const block = minecraftBlockLookup[blockName];
+    const baseColor = block
+        ? { r: block.r, g: block.g, b: block.b }
+        : { r: 26, g: 26, b: 26 };
+
+    return {
+        top: formatRgbColorValue(mixRgbColors(baseColor, { r: 255, g: 255, b: 255 }, 0.18)),
+        left: formatRgbColorValue(mixRgbColors(baseColor, { r: 255, g: 255, b: 255 }, 0.04)),
+        right: formatRgbColorValue(mixRgbColors(baseColor, { r: 0, g: 0, b: 0 }, 0.16)),
+        outline: formatRgbColorValue(mixRgbColors(baseColor, { r: 0, g: 0, b: 0 }, 0.28))
+    };
+}
+
 function updateProjectInfoBar() {
     if (!currentImageSource || !currentBlueprint) {
         projectInfoSize.textContent = '--';
@@ -3182,17 +3217,83 @@ function updateSectionSummaryUI() {
     nextSectionBtn.disabled = false;
 }
 
+function getSelectedBlockInFocusedSection() {
+    if (!selectedBlock || !currentBlueprint || !selectedSection) {
+        return null;
+    }
+
+    const bounds = getSelectedSectionBounds();
+    if (!bounds) {
+        return null;
+    }
+
+    if (
+        selectedBlock.x < bounds.startX
+        || selectedBlock.x >= bounds.endX
+        || selectedBlock.y < bounds.startY
+        || selectedBlock.y >= bounds.endY
+    ) {
+        return null;
+    }
+
+    const blockName = currentBlueprint[selectedBlock.y]?.[selectedBlock.x]?.block;
+    if (!blockName) {
+        return null;
+    }
+
+    if (selectedBlock.block !== blockName || selectedBlock.sectionLabel !== selectedSection.label) {
+        selectedBlock = {
+            ...selectedBlock,
+            block: blockName,
+            sectionLabel: selectedSection.label
+        };
+    }
+
+    return selectedBlock;
+}
+
+function updateFocusedBlockInfoBar() {
+    if (!focusSelectedBlockBar || !focusedBlockPreviewSlot || !focusedBlockPreview || !focusedBlockName) {
+        return;
+    }
+
+    const activeBlock = getSelectedBlockInFocusedSection();
+    if (!activeBlock) {
+        selectedBlock = null;
+        focusSelectedBlockBar.dataset.state = 'empty';
+        focusedBlockPreviewSlot.dataset.state = 'empty';
+        focusedBlockPreview.hidden = true;
+        focusedBlockName.textContent = 'Select a block to inspect';
+        focusedBlockName.removeAttribute('title');
+        return;
+    }
+
+    const previewColors = getFocusedBlockPreviewFaceColors(activeBlock.block);
+    focusSelectedBlockBar.dataset.state = 'selected';
+    focusedBlockPreviewSlot.dataset.state = 'selected';
+    focusedBlockPreview.hidden = false;
+    focusedBlockPreview.style.setProperty('--focused-block-top-color', previewColors.top);
+    focusedBlockPreview.style.setProperty('--focused-block-left-color', previewColors.left);
+    focusedBlockPreview.style.setProperty('--focused-block-right-color', previewColors.right);
+    focusedBlockPreview.style.setProperty('--focused-block-outline-color', previewColors.outline);
+    focusedBlockName.textContent = activeBlock.block;
+    focusedBlockName.title = activeBlock.block;
+}
+
 function updateHighlight() {
     lastHighlightedCells.forEach((cell) => {
         cell.classList.remove('selected-cell');
     });
     lastHighlightedCells = [];
 
-    if (!selectedBlock) {
+    const activeBlock = getSelectedBlockInFocusedSection();
+    updateFocusedBlockInfoBar();
+
+    if (!activeBlock) {
         return;
     }
 
-    const selector = `[data-x="${selectedBlock.x}"][data-y="${selectedBlock.y}"]`;
+    const selector = `[data-x="${activeBlock.x}"][data-y="${activeBlock.y}"]`;
     lastHighlightedCells = Array.from(document.querySelectorAll(selector));
     lastHighlightedCells.forEach((cell) => {
         cell.classList.add('selected-cell');
@@ -4685,6 +4786,8 @@ if (upgradeModal) {
         }
     });
 }
+
+updateFocusedBlockInfoBar();
 
 if (upgradeModalCloseBtn) {
     upgradeModalCloseBtn.addEventListener('click', closeUpgradeModal);
