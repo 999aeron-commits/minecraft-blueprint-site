@@ -317,45 +317,47 @@
         <div class="upgrade-modal-backdrop" data-close-upgrade-modal></div>
         <section class="upgrade-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="upgradeModalTitle">
             <div class="upgrade-modal-header">
-                <div>
-                    <p class="upgrade-modal-eyebrow">Premium Sizes</p>
+                <div class="upgrade-modal-header-copy">
+                    <p class="upgrade-modal-eyebrow">PREMIUM SIZES</p>
                     <h2 id="upgradeModalTitle">Unlock larger blueprint sizes</h2>
-                    <p id="upgradeModalDescription" class="upgrade-modal-copy">Unlock XL and Mega sizes with a monthly subscription or a lifetime unlock.</p>
                 </div>
                 <button id="upgradeModalCloseBtn" class="upgrade-modal-close" type="button" aria-label="Close upgrade modal">-</button>
             </div>
-            <section id="lockedSizePreviewPanel" class="upgrade-preview-panel" hidden aria-label="Locked premium size preview">
-                <div class="upgrade-preview-header">
-                    <span class="upgrade-preview-badge">Premium Preview</span>
-                    <div class="upgrade-preview-copy">
-                        <h3 id="lockedSizePreviewTitle">XL Preview</h3>
-                        <p id="lockedSizePreviewMeta" class="upgrade-preview-meta">128 x 128</p>
+            <div class="upgrade-modal-body">
+                <p id="upgradeModalDescription" class="upgrade-modal-copy upgrade-modal-body-copy">Unlock XL and Mega sizes with a monthly subscription or a lifetime unlock.</p>
+                <section id="lockedSizePreviewPanel" class="upgrade-preview-panel" hidden aria-label="Locked premium size preview">
+                    <div class="upgrade-preview-header">
+                        <span class="upgrade-preview-badge">Premium Preview</span>
+                        <div class="upgrade-preview-copy">
+                            <h3 id="lockedSizePreviewTitle">XL Preview</h3>
+                            <p id="lockedSizePreviewMeta" class="upgrade-preview-meta">128 x 128</p>
+                        </div>
                     </div>
-                </div>
-                <div class="upgrade-preview-stage">
-                    <div id="lockedSizePreviewFrame" class="upgrade-preview-frame">
-                        <img id="lockedSizePreviewImage" class="upgrade-preview-image" alt="" hidden>
-                        <div id="lockedSizePreviewPlaceholder" class="upgrade-preview-placeholder">Upload an image to see the premium blueprint preview.</div>
-                        <div class="upgrade-preview-scrim" aria-hidden="true"></div>
-                        <div class="upgrade-preview-watermark" aria-hidden="true">Premium Teaser</div>
+                    <div class="upgrade-preview-stage">
+                        <div id="lockedSizePreviewFrame" class="upgrade-preview-frame">
+                            <img id="lockedSizePreviewImage" class="upgrade-preview-image" alt="" hidden>
+                            <div id="lockedSizePreviewPlaceholder" class="upgrade-preview-placeholder">Upload an image to see the premium blueprint preview.</div>
+                            <div class="upgrade-preview-scrim" aria-hidden="true"></div>
+                            <div class="upgrade-preview-watermark" aria-hidden="true">Premium Teaser</div>
+                        </div>
                     </div>
+                    <p id="lockedSizePreviewUpsell" class="upgrade-preview-upsell">Unlock premium to open the full build, sections, and materials.</p>
+                </section>
+                <div class="upgrade-modal-options">
+                    <button id="unlockCurrentBlueprintBtn" class="upgrade-option" type="button">
+                        <span class="upgrade-option-title">Unlock XL + Mega sizes</span>
+                        <span class="upgrade-option-price">$0.99/month</span>
+                        <span class="upgrade-option-copy">Cancel anytime. XL and Mega sizes stay unlocked while your subscription is active on your account.</span>
+                    </button>
+                    <button id="unlockLifetimeBtn" class="upgrade-option upgrade-option-lifetime" type="button">
+                        <span class="upgrade-option-badge">Best value</span>
+                        <span class="upgrade-option-title">Unlock forever</span>
+                        <span class="upgrade-option-price">$10 lifetime</span>
+                        <span class="upgrade-option-copy">XL and Mega sizes, one-time payment, future upgrades included on your account.</span>
+                    </button>
                 </div>
-                <p id="lockedSizePreviewUpsell" class="upgrade-preview-upsell">Unlock premium to open the full build, sections, and materials.</p>
-            </section>
-            <div class="upgrade-modal-options">
-                <button id="unlockCurrentBlueprintBtn" class="upgrade-option" type="button">
-                    <span class="upgrade-option-title">Unlock XL + Mega sizes</span>
-                    <span class="upgrade-option-price">$0.99/month</span>
-                    <span class="upgrade-option-copy">Cancel anytime. XL and Mega sizes stay unlocked while your subscription is active on your account.</span>
-                </button>
-                <button id="unlockLifetimeBtn" class="upgrade-option upgrade-option-lifetime" type="button">
-                    <span class="upgrade-option-badge">Best value</span>
-                    <span class="upgrade-option-title">Unlock forever</span>
-                    <span class="upgrade-option-price">$10 lifetime</span>
-                    <span class="upgrade-option-copy">XL and Mega sizes, one-time payment, future upgrades included on your account.</span>
-                </button>
+                <p id="upgradeModalStatus" class="upgrade-modal-status" hidden></p>
             </div>
-            <p id="upgradeModalStatus" class="upgrade-modal-status" hidden></p>
         </section>
     </div>
     <div id="authModal" class="auth-modal" hidden aria-hidden="true">
