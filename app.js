@@ -1288,6 +1288,19 @@ function updateAccountStatusCard(premiumDetails) {
     }
 }
 
+function updateAccountCornerActionButtons() {
+    if (accountProfileActions) {
+        accountProfileActions.hidden = false;
+    }
+
+    if (logoutBtn) {
+        const isSignedIn = !!(accountState.isAuthenticated && accountState.user);
+        logoutBtn.textContent = isSignedIn ? 'Logout' : 'Login';
+        logoutBtn.setAttribute('aria-label', isSignedIn ? 'Logout' : 'Login');
+        logoutBtn.title = isSignedIn ? 'Logout' : 'Login';
+    }
+}
+
 function updateAccountUi() {
     const premiumDetails = getPremiumBadgeDetails();
     const premiumStatusText = premiumDetails.isActive ? premiumDetails.text : 'Premium inactive';
@@ -1315,9 +1328,6 @@ function updateAccountUi() {
         if (accountProfileCorner) {
             accountProfileCorner.hidden = false;
         }
-        if (accountProfileActions) {
-            accountProfileActions.hidden = false;
-        }
     } else {
         if (accountSummaryText) {
             accountSummaryText.textContent = premiumDetails.isActive
@@ -1342,14 +1352,12 @@ function updateAccountUi() {
         if (accountProfileCorner) {
             accountProfileCorner.hidden = false;
         }
-        if (accountProfileActions) {
-            accountProfileActions.hidden = true;
-        }
         if (accountState.activeView === 'account') {
             accountState.activeView = 'login';
         }
     }
 
+    updateAccountCornerActionButtons();
     updateProfileBubbleUi(premiumDetails);
     updateAccountStatusCard(premiumDetails);
     if (currentImageSource) {
@@ -4852,7 +4860,12 @@ if (openMegaPreviewBtn) {
 
 if (logoutBtn) {
     logoutBtn.addEventListener('click', () => {
-        void logoutCurrentAccount();
+        if (accountState.isAuthenticated) {
+            void logoutCurrentAccount();
+            return;
+        }
+
+        setAuthModalView('login');
     });
 }
 
@@ -4867,6 +4880,11 @@ if (openResetPasswordFromAccountBtn) {
 
 if (profileImageInput) {
     const openProfileImagePicker = () => {
+        if (!accountState.isAuthenticated) {
+            setAuthModalView('login');
+            return;
+        }
+
         clearAuthViewFeedback('account');
         profileImageInput.value = '';
         profileImageInput.click();
