@@ -2821,10 +2821,10 @@ function getFocusedBlockPreviewFaceColors(blockName) {
         : { r: 26, g: 26, b: 26 };
 
     return {
-        top: formatRgbColorValue(mixRgbColors(baseColor, { r: 255, g: 255, b: 255 }, 0.18)),
-        left: formatRgbColorValue(mixRgbColors(baseColor, { r: 255, g: 255, b: 255 }, 0.04)),
+        top: formatRgbColorValue(mixRgbColors(baseColor, { r: 255, g: 255, b: 255 }, 0.22)),
+        front: formatRgbColorValue(mixRgbColors(baseColor, { r: 255, g: 255, b: 255 }, 0.05)),
         right: formatRgbColorValue(mixRgbColors(baseColor, { r: 0, g: 0, b: 0 }, 0.16)),
-        outline: formatRgbColorValue(mixRgbColors(baseColor, { r: 0, g: 0, b: 0 }, 0.28))
+        outline: formatRgbColorValue(mixRgbColors(baseColor, { r: 0, g: 0, b: 0 }, 0.3))
     };
 }
 
@@ -3273,7 +3273,7 @@ function updateFocusedBlockInfoBar() {
     focusedBlockPreviewSlot.dataset.state = 'selected';
     focusedBlockPreview.hidden = false;
     focusedBlockPreview.style.setProperty('--focused-block-top-color', previewColors.top);
-    focusedBlockPreview.style.setProperty('--focused-block-left-color', previewColors.left);
+    focusedBlockPreview.style.setProperty('--focused-block-front-color', previewColors.front);
     focusedBlockPreview.style.setProperty('--focused-block-right-color', previewColors.right);
     focusedBlockPreview.style.setProperty('--focused-block-outline-color', previewColors.outline);
     focusedBlockName.textContent = activeBlock.block;

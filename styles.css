@@ -1045,19 +1045,33 @@ body.debug-lite-lower-workspace .viewer-container {
 
 .focused-block-preview {
     --focused-block-top-color: #d7dce0;
-    --focused-block-left-color: #c4c9cc;
+    --focused-block-front-color: #c4c9cc;
     --focused-block-right-color: #9ca1a4;
     --focused-block-outline-color: rgba(57, 41, 31, 0.3);
     filter: drop-shadow(0 6px 10px rgba(57, 41, 31, 0.18));
-    height: 32px;
+    height: 34px;
+    isolation: isolate;
     position: relative;
-    transform: translateY(-2px);
-    width: 38px;
+    transform: translateY(-1px);
+    width: 40px;
+}
+
+.focused-block-preview::before {
+    background: radial-gradient(ellipse at center, rgba(57, 41, 31, 0.22) 0%, rgba(57, 41, 31, 0.1) 55%, transparent 75%);
+    bottom: 0;
+    content: "";
+    height: 7px;
+    left: 7px;
+    position: absolute;
+    width: 26px;
+    z-index: 0;
 }
 
 .focused-block-face {
     box-sizing: border-box;
+    overflow: hidden;
     position: absolute;
+    z-index: 1;
 }
 
 .focused-block-face::after {
@@ -1078,38 +1092,43 @@ body.debug-lite-lower-workspace .viewer-container {
         );
     content: "";
     inset: 0;
-    opacity: 0.45;
+    opacity: 0.42;
     position: absolute;
 }
 
 .focused-block-face-top {
     background: var(--focused-block-top-color);
     border: 1px solid var(--focused-block-outline-color);
-    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
-    height: 18px;
-    left: 0;
-    top: 0;
-    width: 38px;
+    clip-path: polygon(0 100%, 26% 0, 100% 0, 71% 100%);
+    height: 9px;
+    left: 4px;
+    top: 2px;
+    width: 31px;
+    z-index: 3;
 }
 
-.focused-block-face-left {
-    background: var(--focused-block-left-color);
+.focused-block-face-top::after {
+    opacity: 0.26;
+}
+
+.focused-block-face-front {
+    background: var(--focused-block-front-color);
     border: 1px solid var(--focused-block-outline-color);
-    clip-path: polygon(100% 0, 100% 100%, 0 74%, 0 25%);
-    height: 25px;
-    left: 0;
-    top: 14px;
-    width: 19px;
+    height: 20px;
+    left: 4px;
+    top: 11px;
+    width: 22px;
+    z-index: 2;
 }
 
 .focused-block-face-right {
     background: var(--focused-block-right-color);
     border: 1px solid var(--focused-block-outline-color);
-    clip-path: polygon(0 0, 100% 25%, 100% 74%, 0 100%);
-    height: 25px;
-    left: 19px;
-    top: 14px;
-    width: 19px;
+    clip-path: polygon(0 31%, 100% 0, 100% 69%, 0 100%);
+    height: 29px;
+    left: 26px;
+    top: 2px;
+    width: 9px;
 }
 
 .focus-selected-block-copy {
